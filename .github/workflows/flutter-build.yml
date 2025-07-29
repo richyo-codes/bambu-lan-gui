@@ -1,0 +1,144 @@
+name: Flutter Build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build Android (debug APK)
+        run: flutter build apk --debug
+
+      - name: Stage artifacts with LICENSE
+        run: |
+          mkdir -p artifacts/android
+          cp build/app/outputs/flutter-apk/app-debug.apk artifacts/android/
+          cp LICENSE artifacts/android/
+
+      - name: Upload Android artifact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-debug-with-license
+          path: artifacts/android/**
+
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmimalloc-dev libmimalloc2.0 libpulse-dev libssl-dev curl git unzip xz-utils zip libglu1-mesa pkg-config libstdc++-12-dev libasound2-dev
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build Linux (release)
+        run: flutter build linux --release
+
+      - name: Include LICENSE in bundle
+        run: cp LICENSE build/linux/x64/release/bundle/
+
+      - name: Upload Linux artifact (bundle)
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64-bundle-with-license
+          path: build/linux/x64/release/bundle/**
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build Windows (release)
+        run: flutter build windows --release
+
+      - name: Include LICENSE in Release folder
+        shell: pwsh
+        run: Copy-Item -Path LICENSE -Destination build\windows\x64\runner\Release\LICENSE
+
+      - name: Upload Windows artifact (Release folder)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-release-with-license
+          path: build/windows/x64/runner/Release/**
+
+  ios:
+    name: iOS (no codesign)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build iOS (no codesign)
+        run: flutter build ios --no-codesign
+
+      - name: Package Runner.app
+        run: |
+          cd build/ios/iphoneos
+          cp "$GITHUB_WORKSPACE/LICENSe" LICENSE 2>/dev/null || true
+          # Ensure LICENSE present; fall back to workspace path
+          if [ ! -f LICENSE ]; then cp "$GITHUB_WORKSPACE/LICENSE" LICENSE; fi
+          zip -r Runner.app.zip Runner.app LICENSE
+
+      - name: Upload iOS artifact (Runner.app.zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-runner-app-with-license
+          path: build/ios/iphoneos/Runner.app.zip
