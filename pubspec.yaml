@@ -108,4 +108,9 @@ msix_config:
   publisher_display_name: Richard Young
   identity_name: com.ry.printer-lan
   msix_version: 1.0.0.0
-  capabilities: internetClient
+  capabilities: internetClient, privateNetworkClientServer, picturesLibrary
+  install_certificate: false
+  sign_msix: false
+  publisher: CN=RND Software, O=RND Corporation, C=CA
+  #certificate_path: C:/path/to/certificate.pfx
+  #certificate_password: your_certificate_password
