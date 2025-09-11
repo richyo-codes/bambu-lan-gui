@@ -11,6 +11,7 @@ import 'settings_page.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:screenshot/screenshot.dart';
+import 'package:path_provider/path_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +29,7 @@ class MyApp extends StatelessWidget {
       title: 'Bambu RTSP Streamer',
       theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
       home: const StreamPage(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
@@ -77,6 +79,29 @@ class _StreamPageState extends State<StreamPage> {
   StreamSubscription<String>? _errorSub;
   DateTime? _lastErrorToastAt;
 
+  Future<Directory> _resolveScreenshotDir() async {
+    try {
+      if (Platform.isAndroid) {
+        // Use app-specific external storage (no special permissions required)
+        final base = await getExternalStorageDirectory();
+        final root = base ?? await getApplicationDocumentsDirectory();
+        return Directory(path.join(root.path, 'Pictures', 'BambuScreenshots'));
+      }
+      if (Platform.isIOS) {
+        final base = await getApplicationDocumentsDirectory();
+        return Directory(path.join(base.path, 'BambuScreenshots'));
+      }
+      // Desktop/web fallbacks
+      final downloads = await getDownloadsDirectory();
+      final base = downloads ?? await getApplicationDocumentsDirectory();
+      return Directory(path.join(base.path, 'BambuScreenshots'));
+    } catch (_) {
+      // Last-resort: app documents
+      final base = await getApplicationDocumentsDirectory();
+      return Directory(path.join(base.path, 'BambuScreenshots'));
+    }
+  }
+
   Future<void> _takeScreenshot() async {
     try {
       // Capture screenshot using the screenshot package
@@ -84,9 +109,8 @@ class _StreamPageState extends State<StreamPage> {
       final screenshotData = await player.screenshot();
 
       if (screenshotData != null) {
-        // Save to XDG home directory
-        final homeDir = Platform.environment['HOME'] ?? '/tmp';
-        final screenshotDir = Directory('$homeDir/Pictures/BambuScreenshots');
+        // Resolve a platform-appropriate, writable directory
+        final screenshotDir = await _resolveScreenshotDir();
         await screenshotDir.create(recursive: true);
 
         final timestamp = DateTime.now().millisecondsSinceEpoch;
