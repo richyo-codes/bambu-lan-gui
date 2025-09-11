@@ -10,7 +10,6 @@ import 'package:rnd_bambu_rtsp_stream/printer_stream_manager.dart';
 import 'settings_page.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:screenshot/screenshot.dart';
 import 'package:path_provider/path_provider.dart';
 
 void main() async {
@@ -53,7 +52,7 @@ class _StreamPageState extends State<StreamPage> {
   late final VideoController controller;
   String? currentStreamUrl;
   bool isStreaming = false;
-  final screenshotController = ScreenshotController();
+  //final screenshotController = ScreenshotController();
 
   BambuMqtt? mqttClient;
   String printerStatus = 'Unknown'; // Example field to show printer data
@@ -454,36 +453,6 @@ class _StreamPageState extends State<StreamPage> {
               child: isStreaming
                   ? Column(
                       children: [
-                        Expanded(
-                          child: Screenshot(
-                            controller: screenshotController,
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                Video(controller: controller),
-                                // if (_buffering)
-                                //   Container(
-                                //     color: Colors.black26,
-                                //     child: const Center(
-                                //       child: Column(
-                                //         mainAxisSize: MainAxisSize.min,
-                                //         children: [
-                                //           CircularProgressIndicator(),
-                                //           SizedBox(height: 12),
-                                //           Text(
-                                //             'Buffering…',
-                                //             style: TextStyle(
-                                //               color: Colors.white,
-                                //             ),
-                                //           ),
-                                //         ],
-                                //       ),
-                                //     ),
-                                //   ),
-                              ],
-                            ),
-                          ),
-                        ),
                         if (_bufferFraction != null || _buffering)
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 8),
