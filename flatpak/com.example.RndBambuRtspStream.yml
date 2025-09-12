@@ -1,0 +1,37 @@
+app-id: com.example.RndBambuRtspStream
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+command: rnd_bambu_rtsp_stream
+runtime-extensions:
+  - org.freedesktop.Platform.GL.default
+  - org.freedesktop.Platform.openh264
+finish-args:
+  - --share=network
+  - --socket=wayland
+  - --socket=x11
+  - --device=dri
+  - --share=ipc
+  - --socket=pulseaudio
+modules:
+  - name: rnd-bambu-rtsp-stream
+    buildsystem: simple
+    sources:
+      # Built Flutter bundle (run `flutter build linux` first)
+      - type: dir
+        path: ../build/linux/x64/release/bundle
+        dest: bundle
+      # Package metadata (desktop/metainfo/icon) from this folder
+      - type: dir
+        path: .
+        dest: flatpak
+    build-commands:
+      # Install Flutter bundle under /app/bin so lib & data sit next to the binary
+      - install -Dm755 bundle/rnd_bambu_rtsp_stream /app/bin/rnd_bambu_rtsp_stream
+      - cp -r bundle/data /app/bin/
+      - cp -r bundle/lib /app/bin/
+      # Install desktop & metadata
+      - install -Dm644 flatpak/com.example.RndBambuRtspStream.desktop /app/share/applications/com.example.RndBambuRtspStream.desktop
+      - install -Dm644 flatpak/com.example.RndBambuRtspStream.metainfo.xml /app/share/metainfo/com.example.RndBambuRtspStream.metainfo.xml
+      - install -Dm644 flatpak/icons/com.example.RndBambuRtspStream.svg /app/share/icons/hicolor/scalable/apps/com.example.RndBambuRtspStream.svg
+
