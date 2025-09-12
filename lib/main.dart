@@ -453,6 +453,7 @@ class _StreamPageState extends State<StreamPage> {
               child: isStreaming
                   ? Column(
                       children: [
+                        Expanded(child: Video(controller: controller)),
                         if (_bufferFraction != null || _buffering)
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 8),
