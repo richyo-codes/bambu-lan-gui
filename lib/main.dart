@@ -523,12 +523,12 @@ class _StreamPageState extends State<StreamPage> {
                   ElevatedButton.icon(
                     onPressed: _stopStream,
                     icon: const Icon(Icons.stop),
-                    label: const Text('Stop Stream'),
+                    label: const Text('Stop'),
                   ),
                   ElevatedButton.icon(
                     onPressed: _takeScreenshot,
                     icon: const Icon(Icons.camera_alt),
-                    label: const Text('Screenshot'),
+                    label: const Text(''),
                   ),
                   ElevatedButton.icon(
                     onPressed: _openSettings,
