@@ -8,8 +8,9 @@ This is not an official Bambu Lab application. Use at your own risk.
 
 To access the camera stream from the LAN, one of the following must be true:
 
-- Developer Mode is enabled on the printer, which reveals the LAN RTSP/RTSPS stream and a per-printer code shown on the touchscreen.
-- Your printer runs an older firmware that still exposes RTSP/RTSPS without Developer Mode. If you know the exact cutoff for your device, use that; otherwise, enable Developer Mode.
+- If firmware >= 01.08.05.00 (20250312) Developer Mode is enabled on the printer, which reveals the LAN RTSP/RTSPS stream and a per-printer code shown on the touchscreen.
+- Or you are running an older firmware that still exposes RTSP/RTSPS without Developer Mode. 
+- For additional firmware information see https://wiki.bambulab.com/en/x1/manual/X1-X1C-AMS-firmware-release-history
 
 Notes:
 - The app’s “Bambu X1C” URL template expects the printer’s special (developer) code and the printer’s LAN IP address.
@@ -63,3 +64,7 @@ The app previews the generated URL for the selected format.
 ## Disclaimer
 
 This software targets LAN use only. Respect local laws, your device’s EULA/warranty terms, and your network security policies. You are responsible for any changes you make to your printer (including enabling Developer Mode) and their consequences.
+
+## License
+
+Licensed under the MIT License. See the `LICENSE` file for details.
