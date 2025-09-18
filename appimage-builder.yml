@@ -1,0 +1,55 @@
+version: 1
+
+AppDir:
+  path: AppDir
+  app_info:
+    id: com.ry.printer-lan
+    name: Bambu RTSP Stream
+    version: 1.0.0
+    exec: usr/bin/rnd_bambu_rtsp_stream
+  runtime:
+    env:
+      LD_LIBRARY_PATH: "$APPDIR/usr/bin/lib:$APPDIR/usr/lib:$APPDIR/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
+
+  files:
+    include:
+      # Copy the Flutter Linux release bundle (binary + data) into usr/bin
+      - source: build/linux/x64/release/bundle/
+        destination: usr/bin/
+
+  apt:
+    arch: amd64
+    allow_unauthenticated: false
+    sources:
+      - sourceline: 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy main universe'
+      - sourceline: 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-updates main universe'
+      - sourceline: 'deb [arch=amd64] http://security.ubuntu.com/ubuntu/ jammy-security main universe'
+    include:
+      # Core runtime libs often required by Flutter desktop builds
+      - libc6
+      - libstdc++6
+      - libgcc-s1
+      - zlib1g
+      - liblzma5
+      - libunwind8
+      - libx11-6
+      - libxext6
+      - libxrender1
+      - libxcb1
+      - libxkbcommon0
+      - libgtk-3-0
+      - libgdk-pixbuf-2.0-0
+      - libglib2.0-0
+      - libgobject-2.0-0
+      - libgio-2.0-0
+      - libpango-1.0-0
+      - libpangocairo-1.0-0
+      - libharfbuzz0b
+      - libfreetype6
+      - libfontconfig1
+      # Video runtime for media_kit on Linux
+      - libmpv1
+
+AppImage:
+  arch: x86_64
+  update-information: None
