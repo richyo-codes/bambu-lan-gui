@@ -14,6 +14,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute version from git describe
+        id: version
+        run: |
+          set -euo pipefail
+          DESC=$(git describe --tags --dirty --always --match "v*") || DESC="v0.0.0-unknown"
+          # Strip leading 'v' for semver
+          SEMVER=${DESC#v}
+          echo "GIT_DESCRIBE=$DESC" >> $GITHUB_ENV
+          echo "SEMVER=$SEMVER" >> $GITHUB_ENV
+          echo "git_describe=$DESC" >> $GITHUB_OUTPUT
+          echo "semver=$SEMVER" >> $GITHUB_OUTPUT
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -36,7 +51,7 @@ jobs:
       - name: Stage artifacts with LICENSE
         run: |
           mkdir -p artifacts/android
-          cp build/app/outputs/flutter-apk/app-debug.apk artifacts/android/
+          cp build/app/outputs/flutter-apk/app-debug.apk "artifacts/android/app-debug-$SEMVER.apk"
           cp LICENSE artifacts/android/
 
       - name: Build Android (release APK)
@@ -45,13 +60,13 @@ jobs:
       - name: Stage artifacts with LICENSE
         run: |
           mkdir -p artifacts/android
-          cp build/app/outputs/flutter-apk/app-release.apk artifacts/android/
+          cp build/app/outputs/flutter-apk/app-release.apk "artifacts/android/app-release-$SEMVER.apk"
           cp LICENSE artifacts/android/
 
       - name: Upload Android artifact bundle
         uses: actions/upload-artifact@v4
         with:
-          name: android-apk
+          name: android-apk-${{ env.SEMVER }}
           path: artifacts/android/**
           retention-days: 7
 
@@ -61,6 +76,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute version from git describe
+        id: version
+        run: |
+          set -euo pipefail
+          DESC=$(git describe --tags --dirty --always --match "v*") || DESC="v0.0.0-unknown"
+          SEMVER=${DESC#v}
+          echo "GIT_DESCRIBE=$DESC" >> $GITHUB_ENV
+          echo "SEMVER=$SEMVER" >> $GITHUB_ENV
+          echo "git_describe=$DESC" >> $GITHUB_OUTPUT
+          echo "semver=$SEMVER" >> $GITHUB_OUTPUT
 
       - name: Install Linux desktop dependencies
         run: |
@@ -88,26 +117,41 @@ jobs:
       - name: Upload Linux artifact (bundle)
         uses: actions/upload-artifact@v4
         with:
-          name: linux-x64-bundle
+          name: linux-x64-bundle-${{ env.SEMVER }}
           path: build/linux/x64/release/bundle/**
           retention-days: 7
 
       - name: Build Linux release bundle                                                                                                                                                                      
         run: flutter build linux --release                                                            
                                                                                                       
-      - name: Install appimage-builder (apt)
-        run: |
-          sudo add-apt-repository -y ppa:appimage/ppa
-          sudo apt-get update
-          sudo apt-get install -y appimage-builder
+      - name: Install appimage-builder            
+        run: |                                    
+          python3 -m pip install --upgrade --user pip                                                                                                                                                         
+          python3 -m pip install --user appimage-builder                                                                                                                                                      
+          echo "$HOME/.local/bin" >> $GITHUB_PATH 
                                                                                                                                                                                                               
       - name: Build AppImage                                                                                                                                                                                  
         run: appimage-builder --recipe appimage-builder.yml --skip-test
                                                   
+      - name: Version AppImage files
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # Rename AppImage
+          for f in ./*.AppImage; do
+            base=${f%.AppImage}
+            mv "$f" "${base}-$SEMVER.AppImage"
+          done
+          # Rename zsync if present
+          for f in AppImage*.zsync; do
+            base=${f%.zsync}
+            mv "$f" "${base}-$SEMVER.zsync"
+          done
+
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:                                                                                                                                                                                                 
-          name: Bambu-RTSP-Stream-AppImage                                                                                                                                                                    
+          name: Bambu-RTSP-Stream-AppImage-${{ env.SEMVER }}                                                                                                                                                  
           path: |                                 
             ./*.AppImage                                                                                                                                                                                      
             AppImage*.zsync                                                                                                                                                                                   
@@ -119,6 +163,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute version from git describe
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          DESC=$(git describe --tags --dirty --always --match "v*") || DESC="v0.0.0-unknown"
+          SEMVER=${DESC#v}
+          echo "GIT_DESCRIBE=$DESC" >> $GITHUB_ENV
+          echo "SEMVER=$SEMVER" >> $GITHUB_ENV
+          echo "git_describe=$DESC" >> $GITHUB_OUTPUT
+          echo "semver=$SEMVER" >> $GITHUB_OUTPUT
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -141,7 +200,7 @@ jobs:
       - name: Upload Windows artifact (Release folder)
         uses: actions/upload-artifact@v4
         with:
-          name: windows-x64-release
+          name: windows-x64-release-${{ env.SEMVER }}
           path: build/windows/x64/runner/Release/**
           retention-days: 7
 
@@ -150,10 +209,19 @@ jobs:
           flutter pub get
           dart run msix:create
 
+      - name: Version MSIX file(s)
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse -Filter *.msix | ForEach-Object {
+            $dir = $_.DirectoryName
+            $base = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+            Rename-Item -Path $_.FullName -NewName "$base-$env:SEMVER.msix"
+          }
+
       - name: Upload Windows MSIX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-msix
+          name: windows-msix-${{ env.SEMVER }}
           path: '**/*.msix'
           retention-days: 7
 
@@ -163,6 +231,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute version from git describe
+        id: version
+        run: |
+          set -euo pipefail
+          DESC=$(git describe --tags --dirty --always --match "v*") || DESC="v0.0.0-unknown"
+          SEMVER=${DESC#v}
+          echo "GIT_DESCRIBE=$DESC" >> $GITHUB_ENV
+          echo "SEMVER=$SEMVER" >> $GITHUB_ENV
+          echo "git_describe=$DESC" >> $GITHUB_OUTPUT
+          echo "semver=$SEMVER" >> $GITHUB_OUTPUT
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -181,11 +263,11 @@ jobs:
           cp "$GITHUB_WORKSPACE/LICENSe" LICENSE 2>/dev/null || true
           # Ensure LICENSE present; fall back to workspace path
           if [ ! -f LICENSE ]; then cp "$GITHUB_WORKSPACE/LICENSE" LICENSE; fi
-          zip -r Runner.app.zip Runner.app LICENSE
+          zip -r "Runner-$SEMVER.app.zip" Runner.app LICENSE
 
       - name: Upload iOS artifact (Runner.app.zip)
         uses: actions/upload-artifact@v4
         with:
-          name: ios-runner-app
-          path: build/ios/iphoneos/Runner.app.zip
+          name: ios-runner-app-${{ env.SEMVER }}
+          path: build/ios/iphoneos/Runner-*.app.zip
           retention-days: 7
