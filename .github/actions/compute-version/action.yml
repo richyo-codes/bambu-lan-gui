@@ -1,0 +1,28 @@
+name: Compute Version
+description: Compute semantic version from git describe and export to env and outputs
+outputs:
+  semver:
+    description: Version without leading 'v'
+    value: ${{ steps.setver.outputs.semver }}
+  git_describe:
+    description: Full git describe string
+    value: ${{ steps.setver.outputs.git_describe }}
+runs:
+  using: composite
+  steps:
+    - id: setver
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Ensure tags and full history are available for describe
+        git fetch --force --tags || true
+        if git rev-parse --is-shallow-repository >/dev/null 2>&1; then
+          git fetch --unshallow || true
+        fi
+        DESC=$(git describe --tags --dirty --always --match "v*" 2>/dev/null || true)
+        if [ -z "$DESC" ]; then DESC="v0.0.0-unknown"; fi
+        SEMVER=${DESC#v}
+        echo "git_describe=$DESC" >> "$GITHUB_OUTPUT"
+        echo "semver=$SEMVER" >> "$GITHUB_OUTPUT"
+        echo "GIT_DESCRIBE=$DESC" >> "$GITHUB_ENV"
+        echo "SEMVER=$SEMVER" >> "$GITHUB_ENV"
