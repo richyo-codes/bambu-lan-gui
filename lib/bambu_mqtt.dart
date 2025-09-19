@@ -244,6 +244,86 @@ class BambuMqtt {
     _client.publishMessage(topic, qos, b.payload!);
   }
 
+  // ===== Convenience Commands (best-effort; firmware may vary) =====
+
+  Future<void> sendGcode(String line) async {
+    final payload = {
+      'system': {
+        'sequence_id': (_seq++).toString(),
+        'command': 'gcode_line',
+        'param': line,
+      },
+    };
+    await publishRequest(payload);
+  }
+
+  Future<void> home({bool x = true, bool y = true, bool z = true}) async {
+    final axes = [if (x) 'X', if (y) 'Y', if (z) 'Z'].join(' ');
+    await sendGcode('G28 $axes');
+  }
+
+  Future<void> moveRelative({double? x, double? y, double? z, int feed = 6000}) async {
+    // Relative move: set to relative, move, then back to absolute
+    final parts = <String>[];
+    if (x != null) parts.add('X${x.toStringAsFixed(2)}');
+    if (y != null) parts.add('Y${y.toStringAsFixed(2)}');
+    if (z != null) parts.add('Z${z.toStringAsFixed(2)}');
+    final cmd = 'G91\nG1 ${parts.join(' ')} F$feed\nG90';
+    await sendGcode(cmd);
+  }
+
+  Future<void> pausePrint() async {
+    final payload = {
+      'print': {
+        'sequence_id': (_seq++).toString(),
+        'command': 'pause',
+      }
+    };
+    await publishRequest(payload);
+  }
+
+  Future<void> resumePrint() async {
+    final payload = {
+      'print': {
+        'sequence_id': (_seq++).toString(),
+        'command': 'resume',
+      }
+    };
+    await publishRequest(payload);
+  }
+
+  Future<void> cancelPrint() async {
+    final payload = {
+      'print': {
+        'sequence_id': (_seq++).toString(),
+        'command': 'stop', // some firmwares may expect 'cancel'
+      }
+    };
+    await publishRequest(payload);
+  }
+
+  /// Set print speed factor using standard G-code (M220 S<percent>).
+  /// Common range: 10..300 (%). Values are clamped conservatively.
+  Future<void> setSpeedPercent(int percent) async {
+    final p = percent.clamp(10, 300);
+    await sendGcode('M220 S$p');
+  }
+
+  /// Optional: Set flow rate factor via G-code (M221 S<percent>).
+  Future<void> setFlowPercent(int percent) async {
+    final p = percent.clamp(10, 300);
+    await sendGcode('M221 S$p');
+  }
+
+  /// Attempt to set a predefined speed profile. If a native profile command
+  /// is unsupported on the target firmware, fall back to M220 percentage.
+  Future<void> setSpeedProfile(BambuSpeedProfile profile) async {
+    // Placeholder for a potential native command; many firmwares expose
+    // only percentage control. If you know the exact payload, we can add it
+    // here. For now, map to an M220 percent.
+    await setSpeedPercent(profile.fallbackPercent);
+  }
+
   /// Convenience: LED control example (chamber light on/off)
   Future<void> setChamberLight(bool on) {
     final payload = {
@@ -273,5 +353,37 @@ class BambuMqtt {
       },
     };
     await publishRequest(payload);
+  }
+}
+
+/// Speed profile presets commonly seen on Bambu printers.
+enum BambuSpeedProfile { silent, standard, sport, ludicrous }
+
+extension BambuSpeedProfileX on BambuSpeedProfile {
+  String get label {
+    switch (this) {
+      case BambuSpeedProfile.silent:
+        return 'Silent';
+      case BambuSpeedProfile.standard:
+        return 'Standard';
+      case BambuSpeedProfile.sport:
+        return 'Sport';
+      case BambuSpeedProfile.ludicrous:
+        return 'Ludicrous';
+    }
+  }
+
+  /// Conservative percent mappings as a fallback if no native profile API.
+  int get fallbackPercent {
+    switch (this) {
+      case BambuSpeedProfile.silent:
+        return 70;
+      case BambuSpeedProfile.standard:
+        return 100;
+      case BambuSpeedProfile.sport:
+        return 150;
+      case BambuSpeedProfile.ludicrous:
+        return 200;
+    }
   }
 }
