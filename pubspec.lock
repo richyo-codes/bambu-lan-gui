@@ -93,10 +93,10 @@ packages:
     dependency: "direct dev"
     description:
       name: dart_pubspec_licenses
-      sha256: "3e6545923039e35719415dfd2132574083a8bb5c31db074e7b63493cb6c28447"
+      sha256: ed8ce6e093ce94ba0cadba0c9c33d84960b5cf6b76d371d6b5cba2228dc3722e
       url: "https://pub.dev"
     source: hosted
-    version: "3.0.8"
+    version: "3.0.10"
   dbus:
     dependency: transitive
     description:
