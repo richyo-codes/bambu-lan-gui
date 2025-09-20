@@ -22,10 +22,12 @@ class BambuMqtt {
         ..logging(on: false);
 
   final _reports = StreamController<BambuReportEvent>.broadcast();
+  final _commands = StreamController<BambuCommandEvent>.broadcast();
   int _seq = 1;
   String? _activeSerial;
 
   Stream<BambuReportEvent> get reportStream => _reports.stream;
+  Stream<BambuCommandEvent> get commandStream => _commands.stream;
   bool get isConnected =>
       _client.connectionStatus?.state == MqttConnectionState.connected;
 
@@ -240,6 +242,15 @@ class BambuMqtt {
     final topic = 'device/$sn/request';
     final b = MqttClientPayloadBuilder();
     b.addUTF8String(jsonEncode(payload));
+    // Log the outbound command explicitly
+    final evt = BambuCommandEvent(
+      topic: topic,
+      payload: payload,
+      qos: qos,
+      timestamp: DateTime.now(),
+    );
+    _commands.add(evt);
+    stderr.writeln('[MQTT CMD ${evt.timestamp.toIso8601String()}] ${evt.topic} ${jsonEncode(evt.payload)}');
     _client.publishMessage(topic, qos, b.payload!);
   }
 
@@ -352,6 +363,19 @@ class BambuMqtt {
     };
     await publishRequest(payload);
   }
+}
+
+class BambuCommandEvent {
+  final String topic;
+  final Map<String, dynamic> payload;
+  final MqttQos qos;
+  final DateTime timestamp;
+  const BambuCommandEvent({
+    required this.topic,
+    required this.payload,
+    required this.qos,
+    required this.timestamp,
+  });
 }
 
 /// Speed profile presets commonly seen on Bambu printers.

@@ -19,6 +19,10 @@ class _MqttControlPageState extends State<MqttControlPage> {
   double _zStep = 1.0;
   int _speedPct = 100;
   BambuSpeedProfile _profile = BambuSpeedProfile.standard;
+  bool _controlsArmed = false; // require explicit enable before sending
+  bool _allowDuringPrint = false; // require extra opt-in while printing
+  String? _gcodeState; // RUNNING / IDLE / etc
+  final List<String> _cmdLog = <String>[];
 
   Future<void> _ensureConnected() async {
     if (_mqtt?.isConnected == true) return;
@@ -37,6 +41,21 @@ class _MqttControlPageState extends State<MqttControlPage> {
       setState(() {
         _mqtt = mqtt;
         _status = 'Connected';
+      });
+      // Observe printer state, but do not send any commands implicitly.
+      mqtt.reportStream.listen((e) {
+        if (!mounted) return;
+        if (e.printStatus != null) {
+          setState(() => _gcodeState = e.printStatus!.gcodeState);
+        }
+      });
+      mqtt.commandStream.listen((c) {
+        final line = '${c.timestamp.toIso8601String()} ${c.topic} ${c.payload}';
+        if (!mounted) return;
+        setState(() {
+          _cmdLog.add(line);
+          if (_cmdLog.length > 200) _cmdLog.removeAt(0);
+        });
       });
     } catch (e) {
       setState(() => _status = 'Connect failed: $e');
@@ -61,6 +80,15 @@ class _MqttControlPageState extends State<MqttControlPage> {
   }
 
   Future<void> _move({double? x, double? y, double? z}) async {
+    if (!_controlsArmed) {
+      setState(() => _status = 'Controls are locked. Enable to send.');
+      return;
+    }
+    final printing = (_gcodeState == 'RUNNING' || _gcodeState == 'PREPARE');
+    if (printing && !_allowDuringPrint) {
+      setState(() => _status = 'Blocked during print (toggle to allow).');
+      return;
+    }
     if (!_homed && (x != null || y != null)) {
       setState(() => _status = 'Home first (XY)');
       return;
@@ -76,6 +104,21 @@ class _MqttControlPageState extends State<MqttControlPage> {
   }
 
   Future<void> _pause() async {
+    if (!_controlsArmed) {
+      setState(() => _status = 'Controls are locked.');
+      return;
+    }
+    final printing = (_gcodeState == 'RUNNING' || _gcodeState == 'PREPARE');
+    if (!printing) {
+      setState(() => _status = 'No active print to pause.');
+      return;
+    }
+    if (!_allowDuringPrint) {
+      setState(() => _status = 'Blocked during print.');
+      return;
+    }
+    final ok = await _confirm(context, 'Pause current print?');
+    if (!ok) return;
     await _ensureConnected();
     try {
       await _mqtt!.pausePrint();
@@ -86,6 +129,21 @@ class _MqttControlPageState extends State<MqttControlPage> {
   }
 
   Future<void> _resume() async {
+    if (!_controlsArmed) {
+      setState(() => _status = 'Controls are locked.');
+      return;
+    }
+    final paused = (_gcodeState == 'PAUSED');
+    if (!paused) {
+      setState(() => _status = 'Not paused.');
+      return;
+    }
+    if (!_allowDuringPrint) {
+      setState(() => _status = 'Blocked during print.');
+      return;
+    }
+    final ok = await _confirm(context, 'Resume current print?');
+    if (!ok) return;
     await _ensureConnected();
     try {
       await _mqtt!.resumePrint();
@@ -96,6 +154,21 @@ class _MqttControlPageState extends State<MqttControlPage> {
   }
 
   Future<void> _cancel() async {
+    if (!_controlsArmed) {
+      setState(() => _status = 'Controls are locked.');
+      return;
+    }
+    final printing = (_gcodeState == 'RUNNING' || _gcodeState == 'PAUSED' || _gcodeState == 'PREPARE');
+    if (!printing) {
+      setState(() => _status = 'No active print to cancel.');
+      return;
+    }
+    if (!_allowDuringPrint) {
+      setState(() => _status = 'Blocked during print.');
+      return;
+    }
+    final ok = await _confirm(context, 'Cancel current print? This stops the job.');
+    if (!ok) return;
     await _ensureConnected();
     try {
       await _mqtt!.cancelPrint();
@@ -109,6 +182,27 @@ class _MqttControlPageState extends State<MqttControlPage> {
   void dispose() {
     _mqtt?.dispose();
     super.dispose();
+  }
+
+  Future<bool> _confirm(BuildContext context, String message) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Confirm Action'),
+            content: Text(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('No'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Yes'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
   }
 
   @override
@@ -128,8 +222,29 @@ class _MqttControlPageState extends State<MqttControlPage> {
                 ),
                 const SizedBox(width: 12),
                 Text(_status),
+                const Spacer(),
+                const Text('Armed'),
+                Switch(
+                  value: _controlsArmed,
+                  onChanged: (v) => setState(() => _controlsArmed = v),
+                ),
               ],
             ),
+            if (_gcodeState != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4.0),
+                child: Row(
+                  children: [
+                    Text('State: ${_gcodeState!}'),
+                    const SizedBox(width: 16),
+                    const Text('Allow during print'),
+                    Switch(
+                      value: _allowDuringPrint,
+                      onChanged: (v) => setState(() => _allowDuringPrint = v),
+                    ),
+                  ],
+                ),
+              ),
             const SizedBox(height: 16),
             Card(
               child: Padding(
@@ -354,8 +469,35 @@ class _MqttControlPageState extends State<MqttControlPage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Note: Commands are best‑effort and may vary by firmware.',
+              'Safe mode: No commands are sent unless Armed. Opening this screen does not send any commands.',
               style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Command Log'),
+                      const Divider(height: 8),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: _cmdLog.length,
+                          itemBuilder: (context, i) => Text(
+                            _cmdLog[i],
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ],
         ),
