@@ -8,6 +8,8 @@ import 'package:rnd_bambu_rtsp_stream/bambu_mqtt.dart';
 import 'package:rnd_bambu_rtsp_stream/settings_manager.dart';
 import 'package:rnd_bambu_rtsp_stream/printer_stream_manager.dart';
 import 'settings_page.dart';
+import 'mqtt_control_page.dart';
+import 'ftp_browser_page.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
@@ -439,6 +441,24 @@ class _StreamPageState extends State<StreamPage> {
       appBar: AppBar(
         title: const Text('Bambu RTSP Stream'),
         actions: [
+          IconButton(
+            tooltip: 'MQTT Controls',
+            icon: const Icon(Icons.tune),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const MqttControlPage()),
+              );
+            },
+          ),
+          IconButton(
+            tooltip: 'FTP Browser',
+            icon: const Icon(Icons.folder_open),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const FtpBrowserPage()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: _openSettings,
