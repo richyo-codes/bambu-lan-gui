@@ -6,7 +6,6 @@ import 'dart:typed_data';
 import 'package:meta/meta.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
-import 'package:ftpconnect/ftpconnect.dart';
 import 'package:rnd_bambu_rtsp_stream/bambu_lan.dart';
 
 // ==========
@@ -262,7 +261,12 @@ class BambuMqtt {
     await sendGcode('G28 $axes');
   }
 
-  Future<void> moveRelative({double? x, double? y, double? z, int feed = 6000}) async {
+  Future<void> moveRelative({
+    double? x,
+    double? y,
+    double? z,
+    int feed = 6000,
+  }) async {
     // Relative move: set to relative, move, then back to absolute
     final parts = <String>[];
     if (x != null) parts.add('X${x.toStringAsFixed(2)}');
@@ -274,20 +278,14 @@ class BambuMqtt {
 
   Future<void> pausePrint() async {
     final payload = {
-      'print': {
-        'sequence_id': (_seq++).toString(),
-        'command': 'pause',
-      }
+      'print': {'sequence_id': (_seq++).toString(), 'command': 'pause'},
     };
     await publishRequest(payload);
   }
 
   Future<void> resumePrint() async {
     final payload = {
-      'print': {
-        'sequence_id': (_seq++).toString(),
-        'command': 'resume',
-      }
+      'print': {'sequence_id': (_seq++).toString(), 'command': 'resume'},
     };
     await publishRequest(payload);
   }
@@ -297,7 +295,7 @@ class BambuMqtt {
       'print': {
         'sequence_id': (_seq++).toString(),
         'command': 'stop', // some firmwares may expect 'cancel'
-      }
+      },
     };
     await publishRequest(payload);
   }
