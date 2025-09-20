@@ -47,3 +47,14 @@ app.*.map.json
 #other
 /util
 /prompts
+
+# Generated files specific to Flutter projects
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.dart_tool/
+generated_plugin_registrant.dart
+generated_plugin_registrant.h
+generated_plugin_registrant.cc
+generated_plugins.cmake
+GeneratedPluginRegistrant.swift
