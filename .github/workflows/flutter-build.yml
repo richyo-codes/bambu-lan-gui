@@ -14,21 +14,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
 
-      - name: Compute version from git describe
-        id: version
-        run: |
-          set -euo pipefail
-          DESC=$(git describe --tags --dirty --always --match "v*") || DESC="v0.0.0-unknown"
-          # Strip leading 'v' for semver
-          SEMVER=${DESC#v}
-          echo "GIT_DESCRIBE=$DESC" >> $GITHUB_ENV
-          echo "SEMVER=$SEMVER" >> $GITHUB_ENV
-          echo "git_describe=$DESC" >> $GITHUB_OUTPUT
-          echo "semver=$SEMVER" >> $GITHUB_OUTPUT
+      - name: Compute version
+        uses: ./.github/actions/compute-version
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -76,20 +64,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
 
-      - name: Compute version from git describe
-        id: version
-        run: |
-          set -euo pipefail
-          DESC=$(git describe --tags --dirty --always --match "v*") || DESC="v0.0.0-unknown"
-          SEMVER=${DESC#v}
-          echo "GIT_DESCRIBE=$DESC" >> $GITHUB_ENV
-          echo "SEMVER=$SEMVER" >> $GITHUB_ENV
-          echo "git_describe=$DESC" >> $GITHUB_OUTPUT
-          echo "semver=$SEMVER" >> $GITHUB_OUTPUT
+      - name: Compute version
+        uses: ./.github/actions/compute-version
 
       - name: Install Linux desktop dependencies
         run: |
@@ -163,21 +140,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
 
-      - name: Compute version from git describe
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          DESC=$(git describe --tags --dirty --always --match "v*") || DESC="v0.0.0-unknown"
-          SEMVER=${DESC#v}
-          echo "GIT_DESCRIBE=$DESC" >> $GITHUB_ENV
-          echo "SEMVER=$SEMVER" >> $GITHUB_ENV
-          echo "git_describe=$DESC" >> $GITHUB_OUTPUT
-          echo "semver=$SEMVER" >> $GITHUB_OUTPUT
+      - name: Compute version
+        uses: ./.github/actions/compute-version
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -231,20 +196,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
 
-      - name: Compute version from git describe
-        id: version
-        run: |
-          set -euo pipefail
-          DESC=$(git describe --tags --dirty --always --match "v*") || DESC="v0.0.0-unknown"
-          SEMVER=${DESC#v}
-          echo "GIT_DESCRIBE=$DESC" >> $GITHUB_ENV
-          echo "SEMVER=$SEMVER" >> $GITHUB_ENV
-          echo "git_describe=$DESC" >> $GITHUB_OUTPUT
-          echo "semver=$SEMVER" >> $GITHUB_OUTPUT
+      - name: Compute version
+        uses: ./.github/actions/compute-version
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
