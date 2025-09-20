@@ -19,8 +19,11 @@ class BambuFtp {
     SecurityType securityType = SecurityType.ftp;
     if (config.useFtps) {
       // Try explicit TLS (FTPES). If server rejects, most libs gracefully fall back.
-      securityType = SecurityType.ftpes;
+      //securityType = SecurityType.ftpes;
+      securityType = SecurityType.ftps;
     }
+
+    var logger = Logger(isEnabled: true);
 
     final ftp = FTPConnect(
       config.printerIp,
@@ -28,8 +31,12 @@ class BambuFtp {
       pass: config.accessCode,
       port: config.ftpPort,
       securityType: securityType,
+      showLog: false,
+      logger: logger,
       timeout: const Duration(seconds: 15).inSeconds,
     );
+    // Prefer classic LIST for compatibility (vsftpd often lacks MLSD)
+    ftp.listCommand = ListCommand.list;
     await ftp.connect();
     _ftp = ftp;
     return ftp;
@@ -44,16 +51,27 @@ class BambuFtp {
 
   Future<List<FtpEntry>> list(String path) async {
     final ftp = await _get();
-    //path: path
+    if (path.isNotEmpty) {
+      await ftp.changeDirectory(path);
+    }
     final raw = await ftp.listDirectoryContent();
     return raw.map((e) {
+      final name = e.name;
+      final isDir = e.type == FTPEntryType.dir;
+      final size = e.size;
+      final modified = e.modifyTime;
+      // Normalize path composition; avoid double slashes
+      String buildPath(String base, String name) {
+        if (base.isEmpty || base == '/') return '/$name';
+        return base.endsWith('/') ? '$base$name' : '$base/$name';
+      }
+
       return FtpEntry(
-        name: e.name ?? '',
-        //isDir: e.,
-        isDir: true,
-        size: e.size,
-        modified: e.modifyTime,
-        path: e.modifyTime != null ? '$path/${e.name}' : '$path/${e.name}',
+        name: name,
+        isDir: isDir,
+        size: size,
+        modified: modified,
+        path: buildPath(path, name),
       );
     }).toList();
   }
@@ -76,6 +94,6 @@ class BambuFtp {
     final remoteDir = remotePath.substring(0, remotePath.lastIndexOf('/'));
     await ftp.createFolderIfNotExist(remoteDir);
     await ftp.changeDirectory(remoteDir);
-    //await ftp.uploadFile(file, sRetryCount: 2);
+    await ftp.uploadFileWithRetry(file, pRetryCount: 2);
   }
 }
