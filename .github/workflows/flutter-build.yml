@@ -110,29 +110,29 @@ jobs:
       - name: Build AppImage                                                                                                                                                                                  
         run: appimage-builder --recipe appimage-builder.yml --skip-test
                                                   
-      - name: Version AppImage files
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          # Rename AppImage
-          for f in ./*.AppImage; do
-            base=${f%.AppImage}
-            mv "$f" "${base}-$SEMVER.AppImage"
-          done
-          # Rename zsync if present
-          for f in AppImage*.zsync; do
-            base=${f%.zsync}
-            mv "$f" "${base}-$SEMVER.zsync"
-          done
+      # - name: Version AppImage files
+      #   run: |
+      #     set -euo pipefail
+      #     shopt -s nullglob
+      #     # Rename AppImage
+      #     for f in ./*.AppImage; do
+      #       base=${f%.AppImage}
+      #       mv "$f" "${base}-$SEMVER.AppImage"
+      #     done
+      #     # Rename zsync if present
+      #     for f in AppImage*.zsync; do
+      #       base=${f%.zsync}
+      #       mv "$f" "${base}-$SEMVER.zsync"
+      #     done
 
-      - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v4
-        with:                                                                                                                                                                                                 
-          name: Bambu-RTSP-Stream-AppImage-${{ env.SEMVER }}                                                                                                                                                  
-          path: |                                 
-            ./*.AppImage                                                                                                                                                                                      
-            AppImage*.zsync                                                                                                                                                                                   
-          if-no-files-found: error   
+      # - name: Upload AppImage artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:                                                                                                                                                                                                 
+      #     name: Bambu-RTSP-Stream-AppImage-${{ env.SEMVER }}                                                                                                                                                  
+      #     path: |                                 
+      #       ./*.AppImage                                                                                                                                                                                      
+      #       AppImage*.zsync                                                                                                                                                                                   
+      #     if-no-files-found: error   
 
   windows:
     name: Windows x64
