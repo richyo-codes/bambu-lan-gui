@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#4338CA"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="180" ry="180" fill="url(#bg)"/>
+  <!-- RJ45 head -->
+  <rect x="300" y="300" width="424" height="280" rx="28" ry="28" fill="#111827" opacity="0.4"/>
+  <rect x="320" y="320" width="384" height="180" rx="18" ry="18" fill="#EEF2FF"/>
+  <!-- Pins -->
+  <g fill="#4F46E5">
+    <rect x="348" y="344" width="44" height="132" rx="8"/>
+    <rect x="402" y="344" width="44" height="132" rx="8"/>
+    <rect x="456" y="344" width="44" height="132" rx="8"/>
+    <rect x="510" y="344" width="44" height="132" rx="8"/>
+    <rect x="564" y="344" width="44" height="132" rx="8"/>
+    <rect x="618" y="344" width="44" height="132" rx="8"/>
+  </g>
+  <!-- Latch -->
+  <rect x="420" y="508" width="200" height="40" rx="10" fill="#C7D2FE"/>
+  <!-- Cable curve -->
+  <path d="M 512 580 C 512 720, 360 740, 320 860" fill="none" stroke="#E0E7FF" stroke-width="30" stroke-linecap="round"/>
+  <!-- Label -->
+  <text x="512" y="880" text-anchor="middle" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="64" fill="#E0E7FF" opacity="0.95">LAN</text>
+</svg>
+

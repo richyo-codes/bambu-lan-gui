@@ -57,6 +57,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   msix: ^3.16.7
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -118,3 +119,49 @@ msix_config:
   publisher: CN=RND Software, O=RND Corporation, C=CA
   #certificate_path: C:/path/to/certificate.pfx
   #certificate_password: your_certificate_password
+
+flutter_launcher_icons:
+  # Generate per-flavor icons. Run with:
+  #   flutter pub run flutter_launcher_icons -f pubspec.yaml --flavor <flavor>
+  # Example: --flavor filament | home | lan | stream | cube
+  flavors:
+    filament:
+      image_path: assets/icons/renders/filament_spool.png
+      android: true
+      ios: true
+      web: true
+      macos: true
+      windows: true
+      linux: true
+    home:
+      image_path: assets/icons/renders/printer_home.png
+      android: true
+      ios: true
+      web: true
+      macos: true
+      windows: true
+      linux: true
+    lan:
+      image_path: assets/icons/renders/lan_cable.png
+      android: true
+      ios: true
+      web: true
+      macos: true
+      windows: true
+      linux: true
+    stream:
+      image_path: assets/icons/renders/stream_cam.png
+      android: true
+      ios: true
+      web: true
+      macos: true
+      windows: true
+      linux: true
+    cube:
+      image_path: assets/icons/renders/printer_cube.png
+      android: true
+      ios: true
+      web: true
+      macos: true
+      windows: true
+      linux: true
