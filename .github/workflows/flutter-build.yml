@@ -52,7 +52,8 @@ jobs:
           cp LICENSE artifacts/android/
 
       - name: Upload Android artifact bundle
-        uses: actions/upload-artifact@v4
+        #uses: actions/upload-artifact@v4
+        uses: 'christopherhx/gitea-upload-artifact@v4'
         with:
           name: android-apk-${{ env.SEMVER }}
           path: artifacts/android/**
@@ -92,7 +93,8 @@ jobs:
         run: cp LICENSE build/linux/x64/release/bundle/
 
       - name: Upload Linux artifact (bundle)
-        uses: actions/upload-artifact@v4
+        #uses: actions/upload-artifact@v4
+        uses: 'christopherhx/gitea-upload-artifact@v4'
         with:
           name: linux-x64-bundle-${{ env.SEMVER }}
           path: build/linux/x64/release/bundle/**
@@ -184,7 +186,8 @@ jobs:
           }
 
       - name: Upload Windows MSIX artifact
-        uses: actions/upload-artifact@v4
+        #uses: actions/upload-artifact@v4
+        uses: 'christopherhx/gitea-upload-artifact@v4'
         with:
           name: windows-msix-${{ env.SEMVER }}
           path: '**/*.msix'
@@ -220,7 +223,8 @@ jobs:
           zip -r "Runner-$SEMVER.app.zip" Runner.app LICENSE
 
       - name: Upload iOS artifact (Runner.app.zip)
-        uses: actions/upload-artifact@v4
+        #uses: actions/upload-artifact@v4
+        uses: 'christopherhx/gitea-upload-artifact@v4'
         with:
           name: ios-runner-app-${{ env.SEMVER }}
           path: build/ios/iphoneos/Runner-*.app.zip
