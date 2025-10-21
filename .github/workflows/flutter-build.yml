@@ -21,8 +21,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Compute version
-        uses: ./.github/actions/compute-version
+      - name: Git describe
+        id: ghd
+        run: |
+          echo "tag=$(git describe --always --tags --dirty)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -74,8 +76,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Compute version
-        uses: ./.github/actions/compute-version
+      - name: Git describe
+        id: ghd
+        run: |
+          echo "tag=$(git describe --always --tags --dirty)" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux desktop dependencies
         run: |
@@ -153,8 +157,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Compute version
-        uses: ./.github/actions/compute-version
+      - name: Git describe
+        id: ghd
+        run: |
+          echo "tag=$(git describe --always --tags --dirty)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -212,8 +218,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Compute version
-        uses: ./.github/actions/compute-version
+      - name: Git describe
+        id: ghd
+        run: |
+          echo "tag=$(git describe --always --tags --dirty)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
