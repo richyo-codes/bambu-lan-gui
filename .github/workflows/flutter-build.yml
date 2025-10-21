@@ -6,11 +6,17 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+
 
 jobs:
   android:
     name: Android APK
     runs-on: ubuntu-latest
+    concurrency:
+      group: build
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,6 +68,8 @@ jobs:
   linux:
     name: Linux x64
     runs-on: ubuntu-latest
+    concurrency:
+      group: build
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -139,6 +147,8 @@ jobs:
   windows:
     name: Windows x64
     runs-on: windows-latest
+    concurrency:
+      group: build
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -196,6 +206,8 @@ jobs:
   ios:
     name: iOS (no codesign)
     runs-on: macos-latest
+    concurrency:
+      group: build
     steps:
       - name: Checkout
         uses: actions/checkout@v4
