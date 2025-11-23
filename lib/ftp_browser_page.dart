@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:rnd_bambu_rtsp_stream/bambu_ftp.dart';
 import 'package:rnd_bambu_rtsp_stream/bambu_lan.dart';
@@ -59,7 +61,12 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
             if (a.isDir != b.isDir) return a.isDir ? -1 : 1;
             return a.name.compareTo(b.name);
           });
+        _status = '';
       });
+    } on TimeoutException catch (e) {
+      setState(
+        () => _status = 'FTP timed out: ${e.message ?? 'request stalled'}',
+      );
     } catch (e) {
       setState(() => _status = 'List failed: $e');
     } finally {
