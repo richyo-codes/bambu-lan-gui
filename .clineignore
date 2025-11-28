@@ -43,20 +43,3 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
-
-#other
-/util
-/prompts
-
-# Generated files specific to Flutter projects
-.flutter-plugins
-.flutter-plugins-dependencies
-.packages
-.dart_tool/
-generated_plugin_registrant.dart
-generated_plugin_registrant.h
-generated_plugin_registrant.cc
-generated_plugins.cmake
-GeneratedPluginRegistrant.swift
-windows/flutter/generated_plugin_registrant.cc
-windows/flutter/generated_plugins.cmake
