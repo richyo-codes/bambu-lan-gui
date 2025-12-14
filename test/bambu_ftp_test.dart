@@ -29,12 +29,19 @@ void main() {
     expect(entries.length, 2);
     expect(entries.first.name, startsWith('3.5inch_Dell'));
     expect(entries.first.isDir, isFalse);
-    expect(entries.first.path, '/3.5inch_Dell_harddiver_bracket_storage_.gcode.3mf');
+    expect(
+      entries.first.path,
+      '/3.5inch_Dell_harddiver_bracket_storage_.gcode.3mf',
+    );
   });
 
   test('list issues ls <path> and parses entries', () async {
     final fake = _FakeFtpConnect(sampleLs);
-    final cfg = BambuLanConfig(printerIp: '0.0.0.0', accessCode: 'x', serial: 's');
+    final cfg = BambuLanConfig(
+      printerIp: '0.0.0.0',
+      accessCode: 'x',
+      serial: 's',
+    );
     final client = BambuFtp(cfg, client: fake);
 
     final entries = await client.list('/');

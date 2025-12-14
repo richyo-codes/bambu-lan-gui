@@ -68,9 +68,12 @@ class BambuFtp {
     try {
       final resp = await ftp
           .sendCustomCommand('ls $target')
-          .timeout(timeout, onTimeout: () {
-        throw TimeoutException('FTP ls timed out', timeout);
-      });
+          .timeout(
+            timeout,
+            onTimeout: () {
+              throw TimeoutException('FTP ls timed out', timeout);
+            },
+          );
       final entries = parseLsResponse(resp.message, currentPath: target);
       if (entries.isEmpty) {
         throw FTPConnectException('FTP ls returned no data');

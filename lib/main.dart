@@ -42,11 +42,12 @@ class StreamPage extends StatefulWidget {
   State<StreamPage> createState() => _StreamPageState();
 }
 
-bool isAccelSupported() {
+bool isAccelSupported({TargetPlatform? platformOverride}) {
+  final isLinux = platformOverride == TargetPlatform.linux || Platform.isLinux;
   // This is a placeholder. Actual hardware acceleration support detection
   // would depend on the platform and the media_kit capabilities.
   // For simplicity, we'll assume it's supported on desktop platforms.
-  return !Platform.isLinux;
+  return !isLinux;
 }
 
 class _StreamPageState extends State<StreamPage> {
@@ -454,9 +455,9 @@ class _StreamPageState extends State<StreamPage> {
             tooltip: 'FTP Browser',
             icon: const Icon(Icons.folder_open),
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const FtpBrowserPage()),
-              );
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const FtpBrowserPage()));
             },
           ),
           IconButton(
