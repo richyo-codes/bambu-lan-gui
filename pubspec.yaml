@@ -33,7 +33,7 @@ dependencies:
   shared_preferences: ^2.2.3
   path_provider: ^2.1.4
   media_kit: ^1.1.11 # Primary package.
-  media_kit_video: ^1.2.5 # For video rendering.
+  media_kit_video: ^2.0.1 # For video rendering.
   media_kit_libs_video: ^1.0.5 # Native video dependencies.
   universal_platform: ^1.1.0
   mqtt_client: ^10.0.0
