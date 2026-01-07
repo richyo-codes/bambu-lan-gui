@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:rnd_bambu_rtsp_stream/bambu_lan.dart';
 import 'package:rnd_bambu_rtsp_stream/bambu_mqtt.dart';
 import 'package:rnd_bambu_rtsp_stream/settings_manager.dart';
-import 'window_drag_controller.dart';
 
 class MqttControlPage extends StatefulWidget {
   const MqttControlPage({super.key});
@@ -209,15 +208,7 @@ class _MqttControlPageState extends State<MqttControlPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const WindowDragArea(
-          child: SizedBox(
-            width: double.infinity,
-            child: Text('MQTT Controls'),
-          ),
-        ),
-        actions: const [WindowControlButtons()],
-      ),
+      appBar: AppBar(title: const Text('MQTT Controls')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

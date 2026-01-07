@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ftpconnect/ftpconnect.dart';
-import 'package:ftpconnect/src/ftp_reply.dart';
 import 'package:rnd_bambu_rtsp_stream/bambu_ftp.dart';
 import 'package:rnd_bambu_rtsp_stream/bambu_lan.dart';
 

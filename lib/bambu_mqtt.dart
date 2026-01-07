@@ -76,17 +76,18 @@ class BambuMqtt {
 
     try {
       await _client.connect();
-    } on Exception {
+    } on Exception catch (e) {
       _client.disconnect();
       rethrow;
     }
 
-    // Subscribe to reports (always wildcard; specific serial may differ by case)
-    _activeSerial = _normalizeSerial(config.serial);
-    _client.subscribe('device/+/report', MqttQos.atLeastOnce);
-    if (_activeSerial != null) {
-      _client.subscribe('device/${_activeSerial!}/report', MqttQos.atLeastOnce);
-    }
+    // Subscribe to reports
+    _activeSerial = config.serial;
+    final String topic = _activeSerial != null
+        ? 'device/${_activeSerial!}/report'
+        : 'device/+/report';
+
+    _client.subscribe(topic, MqttQos.atLeastOnce);
 
     _client.updates?.listen((events) {
       for (final evt in events) {
@@ -107,25 +108,19 @@ class BambuMqtt {
           // Try to learn serial from the first report if not set
           _maybeInferSerial(evt.topic, jsonMap);
 
-          _reports.add(e);
-        } catch (e) {
-          final maxLen = msg.length < 200 ? msg.length : 200;
-          stderr.writeln(
-            'MQTT report parse failed: $e | topic=${evt.topic} | '
-            'msg=${msg.substring(0, maxLen)}',
-          );
+          if (type != 'PRINT' && type != 'SYSTEM') {
+            // Debug/log other types
+
+            _reports.add(e);
+          }
+        } catch (_) {
+          // Non-JSON message — ignore
         }
       }
     });
   }
 
   String _clientId() => 'bambu_dart_${DateTime.now().millisecondsSinceEpoch}';
-
-  String? _normalizeSerial(String? serial) {
-    final trimmed = serial?.trim();
-    if (trimmed == null || trimmed.isEmpty) return null;
-    return trimmed;
-  }
 
   String? _detectType(Map<String, dynamic> j) {
     // Heuristic; schema can vary by firmware
@@ -215,13 +210,13 @@ class BambuMqtt {
 
     final m = RegExp(r'^device/([^/]+)/report').firstMatch(topic);
     if (m != null) {
-      _activeSerial = _normalizeSerial(m.group(1));
+      _activeSerial = m.group(1);
     } else {
       // try payload fields often containing serial/dev id (best-effort)
       for (final key in ['sn', 'serial', 'dev_id', 'usn']) {
         final v = j[key];
         if (v is String && v.isNotEmpty) {
-          _activeSerial = _normalizeSerial(v);
+          _activeSerial = v;
           break;
         }
       }
@@ -238,7 +233,7 @@ class BambuMqtt {
     Map<String, dynamic> payload, {
     MqttQos qos = MqttQos.atLeastOnce,
   }) async {
-    final sn = _normalizeSerial(_activeSerial) ?? _normalizeSerial(config.serial);
+    final sn = _activeSerial ?? config.serial;
     if (sn == null) {
       throw StateError(
         'Printer serial is unknown; provide BambuLanConfig.serial or wait for first report.',
@@ -255,6 +250,7 @@ class BambuMqtt {
       timestamp: DateTime.now(),
     );
     _commands.add(evt);
+    stderr.writeln('[MQTT CMD ${evt.timestamp.toIso8601String()}] ${evt.topic} ${jsonEncode(evt.payload)}');
     _client.publishMessage(topic, qos, b.payload!);
   }
 
@@ -338,15 +334,13 @@ class BambuMqtt {
   }
 
   /// Convenience: LED control example (chamber light on/off)
-  Future<void> setChamberLight(bool on, {String ledNode = 'chamber_light'}) {
+  Future<void> setChamberLight(bool on) {
     final payload = {
       'system': {
         'sequence_id': (_seq++).toString(),
         'command': 'ledctrl',
-        'led_node': ledNode,
+        'led_node': 'chamber_light',
         'led_mode': on ? 'on' : 'off',
-        'led_on_time': 500,
-        'led_off_time': 500,
         'loop_times': 1,
         'interval_time': 1000,
       },
@@ -358,42 +352,13 @@ class BambuMqtt {
   /// [sdPath] is a device-visible absolute path to the uploaded .3mf/.gcode.
   /// Note: Different firmware builds expect slightly different keys.
   /// If you receive a verification error, inspect the report and adjust.
-  Future<String> startPrintFromSd(String sdPath) async {
-    final seq = (_seq++).toString();
+  Future<void> startPrintFromSd(String sdPath) async {
     final payload = {
       'print': {
-        'sequence_id': seq,
+        'sequence_id': (_seq++).toString(),
         'command': 'start',
         // Many firmwares accept one of these forms — try a conservative one:
         'param': {'file': sdPath, 'is_lan': 1},
-      },
-    };
-    await publishRequest(payload);
-    return seq;
-  }
-
-  /// Print a G-code file already on the printer.
-  Future<String> printGcodeFile(String gcodePath) async {
-    final seq = (_seq++).toString();
-    final payload = {
-      'print': {
-        'sequence_id': seq,
-        'command': 'gcode_file',
-        'param': gcodePath,
-      },
-    };
-    await publishRequest(payload, qos: MqttQos.atLeastOnce);
-    return seq;
-  }
-
-  /// Request a full status push (use sparingly on some models).
-  Future<void> requestPushAll() async {
-    final payload = {
-      'pushing': {
-        'sequence_id': (_seq++).toString(),
-        'command': 'pushall',
-        'version': 1,
-        'push_target': 1,
       },
     };
     await publishRequest(payload);

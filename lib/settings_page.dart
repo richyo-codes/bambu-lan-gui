@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:rnd_bambu_rtsp_stream/printer_url_formats.dart';
 
 import 'settings_manager.dart';
-import 'window_drag_controller.dart';
 
 class SettingsPage extends StatefulWidget {
   final Function(String)? onConnect; // Callback for connect button
@@ -24,9 +23,6 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController printerIpController = TextEditingController();
   final TextEditingController serialNumberController =
       TextEditingController(); // <-- Added
-  bool _autoConnect = false;
-  bool _mqttControlsEnabled = false;
-  bool _lightControlsEnabled = false;
 
   PrinterUrlType selectedFormat = PrinterUrlType.bambuX1C;
 
@@ -45,9 +41,6 @@ class _SettingsPageState extends State<SettingsPage> {
     serialNumberController.text = settings.serialNumber;
     customUrlController.text = settings.customUrl;
     selectedFormat = settings.selectedFormat;
-    _autoConnect = settings.autoConnect;
-    _mqttControlsEnabled = settings.mqttControlsEnabled;
-    _lightControlsEnabled = settings.lightControlsEnabled;
     setState(() {});
   }
 
@@ -58,9 +51,6 @@ class _SettingsPageState extends State<SettingsPage> {
       serialNumber: serialNumberController.text,
       selectedFormat: selectedFormat,
       customUrl: customUrlController.text,
-      autoConnect: _autoConnect,
-      mqttControlsEnabled: _mqttControlsEnabled,
-      lightControlsEnabled: _lightControlsEnabled,
     );
     await SettingsManager.saveSettings(settings);
   }
@@ -77,13 +67,6 @@ class _SettingsPageState extends State<SettingsPage> {
       'serialNumber': pick('serialNumber', 'rtsp_serial_number'),
       'selectedFormat': pick('selectedFormat', 'rtsp_format', 'Bambu X1C'),
       'customUrl': pick('customUrl', 'rtsp_custom_url'),
-      'autoConnect': (m['autoConnect'] ?? m['rtsp_auto_connect'] ?? false),
-      'mqttControlsEnabled': (m['mqttControlsEnabled'] ??
-          m['rtsp_mqtt_controls_enabled'] ??
-          false),
-      'lightControlsEnabled': (m['lightControlsEnabled'] ??
-          m['rtsp_light_controls_enabled'] ??
-          false),
     };
   }
 
@@ -155,9 +138,6 @@ class _SettingsPageState extends State<SettingsPage> {
         serialNumber: serialNumberController.text,
         selectedFormat: selectedFormat,
         customUrl: customUrlController.text,
-        autoConnect: _autoConnect,
-        mqttControlsEnabled: _mqttControlsEnabled,
-        lightControlsEnabled: _lightControlsEnabled,
       );
 
       final jsonString = const JsonEncoder.withIndent(
@@ -174,7 +154,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
       if (mounted) {
         final text =
-            (savedPath.toString().trim().isNotEmpty)
+            (savedPath != null && savedPath.toString().trim().isNotEmpty)
             ? 'Settings exported to: $savedPath'
             : 'Settings exported to JSON.';
         ScaffoldMessenger.of(
@@ -204,12 +184,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const WindowDragArea(
-          child: SizedBox(
-            width: double.infinity,
-            child: Text('Stream Settings'),
-          ),
-        ),
+        title: const Text('Stream Settings'),
         actions: [
           IconButton(
             tooltip: 'Export settings to JSON',
@@ -221,7 +196,6 @@ class _SettingsPageState extends State<SettingsPage> {
             icon: const Icon(Icons.file_open),
             onPressed: _importFromJson,
           ),
-          const WindowControlButtons(),
         ],
       ),
       body: Padding(
@@ -336,25 +310,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
 
               const SizedBox(height: 30),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Auto-connect on launch'),
-                subtitle: const Text(
-                  'Automatically connect when this config is valid.',
-                ),
-                value: _autoConnect,
-                onChanged: (v) => setState(() => _autoConnect = v),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Enable MQTT controls'),
-                subtitle: const Text(
-                  'Show advanced MQTT control panel (use with care).',
-                ),
-                value: _mqttControlsEnabled,
-                onChanged: (v) => setState(() => _mqttControlsEnabled = v),
-              ),
-              const SizedBox(height: 20),
 
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,

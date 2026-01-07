@@ -14,64 +14,6 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
-static FlMethodChannel* window_drag_channel = nullptr;
-
-static void window_drag_method_call_cb(FlMethodChannel* channel,
-                                       FlMethodCall* method_call,
-                                       gpointer user_data) {
-  const gchar* method = fl_method_call_get_name(method_call);
-  g_autoptr(FlMethodResponse) response = nullptr;
-
-  if (g_strcmp0(method, "startDrag") == 0) {
-    GtkWindow* window = GTK_WINDOW(user_data);
-    GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(window));
-    GdkSeat* seat = display != nullptr ? gdk_display_get_default_seat(display)
-                                       : nullptr;
-    GdkDevice* pointer = seat != nullptr ? gdk_seat_get_pointer(seat) : nullptr;
-    gint x_root = 0;
-    gint y_root = 0;
-    if (pointer != nullptr) {
-      gdk_device_get_position(pointer, nullptr, &x_root, &y_root);
-    }
-    gtk_window_begin_move_drag(window, 1, x_root, y_root,
-                               gtk_get_current_event_time());
-    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
-  } else if (g_strcmp0(method, "minimize") == 0) {
-    GtkWindow* window = GTK_WINDOW(user_data);
-    gtk_window_iconify(window);
-    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
-  } else if (g_strcmp0(method, "maximize") == 0) {
-    GtkWindow* window = GTK_WINDOW(user_data);
-    gtk_window_maximize(window);
-    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
-  } else if (g_strcmp0(method, "toggleMaximize") == 0) {
-    GtkWindow* window = GTK_WINDOW(user_data);
-    GdkWindow* gdk_window = gtk_widget_get_window(GTK_WIDGET(window));
-    if (gdk_window != nullptr) {
-      const GdkWindowState state = gdk_window_get_state(gdk_window);
-      if (state & GDK_WINDOW_STATE_MAXIMIZED) {
-        gtk_window_unmaximize(window);
-      } else {
-        gtk_window_maximize(window);
-      }
-    } else {
-      gtk_window_maximize(window);
-    }
-    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
-  } else if (g_strcmp0(method, "close") == 0) {
-    GtkWindow* window = GTK_WINDOW(user_data);
-    gtk_window_close(window);
-    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
-  } else {
-    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
-  }
-
-  g_autoptr(GError) error = nullptr;
-  if (!fl_method_call_respond(method_call, response, &error)) {
-    g_warning("Failed to send window drag response: %s", error->message);
-  }
-}
-
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView *view)
 {
@@ -84,9 +26,32 @@ static void my_application_activate(GApplication* application) {
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
-  // Use Flutter's header and make the window frameless.
-  gtk_window_set_title(window, "printer_lan");
-  gtk_window_set_decorated(window, FALSE);
+  // Use a header bar when running in GNOME as this is the common style used
+  // by applications and is the setup most users will be using (e.g. Ubuntu
+  // desktop).
+  // If running on X and not using GNOME then just use a traditional title bar
+  // in case the window manager does more exotic layout, e.g. tiling.
+  // If running on Wayland assume the header bar will work (may need changing
+  // if future cases occur).
+  gboolean use_header_bar = TRUE;
+#ifdef GDK_WINDOWING_X11
+  GdkScreen* screen = gtk_window_get_screen(window);
+  if (GDK_IS_X11_SCREEN(screen)) {
+    const gchar* wm_name = gdk_x11_screen_get_window_manager_name(screen);
+    if (g_strcmp0(wm_name, "GNOME Shell") != 0) {
+      use_header_bar = FALSE;
+    }
+  }
+#endif
+  if (use_header_bar) {
+    GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
+    gtk_widget_show(GTK_WIDGET(header_bar));
+    gtk_header_bar_set_title(header_bar, "printer_lan");
+    gtk_header_bar_set_show_close_button(header_bar, TRUE);
+    gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
+  } else {
+    gtk_window_set_title(window, "printer_lan");
+  }
 
   gtk_window_set_default_size(window, 1280, 720);
 
@@ -99,15 +64,6 @@ static void my_application_activate(GApplication* application) {
   fl_dart_project_set_dart_entrypoint_arguments(project, self->dart_entrypoint_arguments);
 
   FlView* view = fl_view_new(project);
-  if (window_drag_channel == nullptr) {
-    FlBinaryMessenger* messenger =
-        fl_engine_get_binary_messenger(fl_view_get_engine(view));
-    g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
-    window_drag_channel = fl_method_channel_new(
-        messenger, "app/window_drag", FL_METHOD_CODEC(codec));
-    fl_method_channel_set_method_call_handler(
-        window_drag_channel, window_drag_method_call_cb, window, nullptr);
-  }
   GdkRGBA background_color;
   // Background defaults to black, override it here if necessary, e.g. #00000000 for transparent.
   gdk_rgba_parse(&background_color, "#000000");

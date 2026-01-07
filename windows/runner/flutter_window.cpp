@@ -27,57 +27,6 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
-  window_drag_channel_ =
-      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
-          flutter_controller_->engine()->messenger(), "app/window_drag",
-          &flutter::StandardMethodCodec::GetInstance());
-  window_drag_channel_->SetMethodCallHandler(
-      [this](const auto& call, auto result) {
-        const std::string& method = call.method_name();
-        HWND handle = GetHandle();
-        if (method == "startDrag") {
-          if (handle != nullptr) {
-            ReleaseCapture();
-            SendMessage(handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-          }
-          result->Success();
-          return;
-        }
-        if (method == "minimize") {
-          if (handle != nullptr) {
-            ShowWindow(handle, SW_MINIMIZE);
-          }
-          result->Success();
-          return;
-        }
-        if (method == "maximize") {
-          if (handle != nullptr) {
-            ShowWindow(handle, SW_MAXIMIZE);
-          }
-          result->Success();
-          return;
-        }
-        if (method == "toggleMaximize") {
-          if (handle != nullptr) {
-            if (IsZoomed(handle)) {
-              ShowWindow(handle, SW_RESTORE);
-            } else {
-              ShowWindow(handle, SW_MAXIMIZE);
-            }
-          }
-          result->Success();
-          return;
-        }
-        if (method == "close") {
-          if (handle != nullptr) {
-            PostMessage(handle, WM_CLOSE, 0, 0);
-          }
-          result->Success();
-          return;
-        }
-        result->NotImplemented();
-      });
-
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });
