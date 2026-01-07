@@ -43,11 +43,8 @@ class StreamPage extends StatefulWidget {
 }
 
 bool isAccelSupported({TargetPlatform? platformOverride}) {
-  final isLinux = platformOverride == TargetPlatform.linux || Platform.isLinux;
-  // This is a placeholder. Actual hardware acceleration support detection
-  // would depend on the platform and the media_kit capabilities.
-  // For simplicity, we'll assume it's supported on desktop platforms.
-  return !isLinux;
+
+  return true;
 }
 
 class _StreamPageState extends State<StreamPage> {
@@ -80,6 +77,10 @@ class _StreamPageState extends State<StreamPage> {
   StreamSubscription<Duration>? _durationSub;
   StreamSubscription<String>? _errorSub;
   DateTime? _lastErrorToastAt;
+  StreamSubscription<bool>? _playingSub;
+  bool _showVideoControls = false;
+  bool _isPlaying = false;
+  Timer? _controlsHideTimer;
 
   Future<Directory> _resolveScreenshotDir() async {
     try {
@@ -169,6 +170,8 @@ class _StreamPageState extends State<StreamPage> {
     _bufferPosSub?.cancel();
     _durationSub?.cancel();
     _errorSub?.cancel();
+    _playingSub?.cancel();
+    _controlsHideTimer?.cancel();
     player.dispose();
     mqttClient?.dispose();
     super.dispose();
@@ -268,6 +271,7 @@ class _StreamPageState extends State<StreamPage> {
     _bufferPosSub?.cancel();
     _durationSub?.cancel();
     _errorSub?.cancel();
+    _playingSub?.cancel();
 
     _bufferingSub = player.stream.buffering.listen((b) {
       if (!mounted) return;
@@ -297,6 +301,26 @@ class _StreamPageState extends State<StreamPage> {
         }
       }
       _attemptReconnect(reason: 'error: $msg');
+    });
+    _playingSub = player.stream.playing.listen((playing) {
+      if (!mounted) return;
+      setState(() {
+        _isPlaying = playing;
+      });
+    });
+  }
+
+  void _showControlsTemporarily() {
+    if (!mounted) return;
+    setState(() {
+      _showVideoControls = true;
+    });
+    _controlsHideTimer?.cancel();
+    _controlsHideTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() {
+        _showVideoControls = false;
+      });
     });
   }
 
@@ -474,15 +498,84 @@ class _StreamPageState extends State<StreamPage> {
               child: isStreaming
                   ? Column(
                       children: [
-                        Expanded(child: Video(controller: controller)),
-                        if (_bufferFraction != null || _buffering)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            child: LinearProgressIndicator(
-                              value: _bufferFraction, // null => indeterminate
-                              minHeight: 4,
+                        Expanded(
+                          child: MouseRegion(
+                            onEnter: (_) {
+                              setState(() {
+                                _showVideoControls = true;
+                              });
+                              _controlsHideTimer?.cancel();
+                            },
+                            onExit: (_) {
+                              setState(() {
+                                _showVideoControls = false;
+                              });
+                              _controlsHideTimer?.cancel();
+                            },
+                            child: GestureDetector(
+                              onTap: _showControlsTemporarily,
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: Video(
+                                      controller: controller,
+                                      controls: NoVideoControls,
+                                    ),
+                                  ),
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      ignoring: !_showVideoControls,
+                                      child: AnimatedOpacity(
+                                        opacity: _showVideoControls ? 1 : 0,
+                                        duration:
+                                            const Duration(milliseconds: 150),
+                                        child: Container(
+                                          color: Colors.black.withOpacity(0.2),
+                                          child: Center(
+                                            child: DecoratedBox(
+                                              decoration: BoxDecoration(
+                                                color: Colors.black.withOpacity(
+                                                  0.55,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(48),
+                                              ),
+                                              child: IconButton(
+                                                iconSize: 56,
+                                                color: Colors.white,
+                                                icon: Icon(
+                                                  _isPlaying
+                                                      ? Icons.pause
+                                                      : Icons.play_arrow,
+                                                ),
+                                                onPressed: () {
+                                                  if (_isPlaying) {
+                                                    player.pause();
+                                                  } else {
+                                                    player.play();
+                                                  }
+                                                  _showControlsTemporarily();
+                                                },
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
+                        ),
+                        if (_bufferFraction != null || _buffering)
+                          // Padding(
+                          //   padding: const EdgeInsets.symmetric(horizontal: 8),
+                          //   child: LinearProgressIndicator(
+                          //     value: _bufferFraction, // null => indeterminate
+                          //     minHeight: 4,
+                          //   ),
+                          // ),
                         if (_lastPrintStatus != null)
                           Padding(
                             padding: const EdgeInsets.all(8),
