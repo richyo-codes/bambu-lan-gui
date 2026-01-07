@@ -3,24 +3,24 @@ flutter_launcher_icons:
 
   android: true
   ios: true
-  image_path: assets/icons/renders/lan_shield.png # Export this PNG from app_icon.svg at 1024x1024
-  adaptive_icon_foreground:  assets/icons/renders/lan_shield.png
+  image_path: assets/icons/renders/printer_home_shield.png # Export this PNG from icon_printer_home_shield.svg at 1024x1024
+  adaptive_icon_foreground:  assets/icons/renders/printer_home_shield.png
   adaptive_icon_background: '#0E1116'
   web:
     generate: true
-    image_path: assets/icons/renders/lan_shield.png
+    image_path: assets/icons/renders/printer_home_shield.png
     background_color: '#0E1116'
     theme_color: '#0E1116'
   macos:
     generate: true
-    image_path: assets/icons/renders/lan_shield.png
+    image_path: assets/icons/renders/printer_home_shield.png
   windows:
     generate: true
-    image_path: assets/icons/renders/lan_shield.png
+    image_path: assets/icons/renders/printer_home_shield.png
     icon_size: 48
   linux:
     generate: true
-    image_path: assets/icons/renders/lan_shield.png
+    image_path: assets/icons/renders/printer_home_shield.png
 
 
   # Generate per-flavor icons. Run with:

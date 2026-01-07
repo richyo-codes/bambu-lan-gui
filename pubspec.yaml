@@ -72,7 +72,7 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
-    - assets/icons/renders/lan_shield.png
+    - assets/icons/renders/printer_home_shield.png
 
 # If you plan to ship the printer's CA certificate as an asset (PEM),
 # uncomment and adjust for Flutter apps.
