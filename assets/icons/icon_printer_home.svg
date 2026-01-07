@@ -1,24 +1,38 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#10B981"/>
-      <stop offset="100%" stop-color="#059669"/>
+      <stop offset="0%" stop-color="#166534"/>
+      <stop offset="100%" stop-color="#22C55E"/>
+    </linearGradient>
+    <linearGradient id="houseTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#DCFCE7"/>
+      <stop offset="100%" stop-color="#86EFAC"/>
+    </linearGradient>
+    <linearGradient id="houseLeft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#16A34A"/>
+      <stop offset="100%" stop-color="#0F6A30"/>
+    </linearGradient>
+    <linearGradient id="houseRight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4ADE80"/>
+      <stop offset="100%" stop-color="#16A34A"/>
     </linearGradient>
   </defs>
   <rect x="64" y="64" width="896" height="896" rx="180" ry="180" fill="url(#bg)"/>
-  <!-- House outline -->
-  <path d="M 256 520 L 512 300 L 768 520 V 820 H 256 Z" fill="#ffffff" fill-opacity="0.08" stroke="#ECFDF5" stroke-width="18" stroke-linejoin="round"/>
-  <path d="M 340 520 V 760 H 684 V 520" fill="none" stroke="#ECFDF5" stroke-width="18" stroke-linejoin="round"/>
-  <!-- 3D printer frame inside house -->
-  <rect x="360" y="560" width="304" height="180" rx="18" ry="18" fill="#064E3B" opacity="0.35"/>
-  <rect x="380" y="580" width="264" height="140" rx="14" ry="14" fill="none" stroke="#D1FAE5" stroke-width="12"/>
-  <!-- Gantry + nozzle -->
-  <rect x="410" y="610" width="204" height="16" rx="8" fill="#D1FAE5"/>
-  <rect x="510" y="626" width="24" height="44" rx="6" fill="#D1FAE5"/>
-  <rect x="508" y="670" width="28" height="28" rx="6" fill="#FCD34D"/>
-  <!-- Part being printed (cube) -->
-  <rect x="478" y="700" width="88" height="60" rx="8" fill="#34D399" stroke="#A7F3D0" stroke-width="6"/>
-  <!-- Label -->
-  <text x="512" y="200" text-anchor="middle" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="64" fill="#ECFDF5">Home</text>
-</svg>
 
+  <!-- 3D house -->
+  <polygon points="512,260 712,380 512,500 312,380" fill="url(#houseTop)"/>
+  <polygon points="312,380 512,500 512,740 312,620" fill="url(#houseLeft)"/>
+  <polygon points="712,380 512,500 512,740 712,620" fill="url(#houseRight)"/>
+
+  <!-- Door frame with cube inside -->
+  <rect x="442" y="520" width="140" height="200" rx="16" fill="#0B1324" opacity="0.35"/>
+  <polygon points="512,560 590,610 512,660 434,610" fill="#BBF7D0"/>
+  <polygon points="434,610 512,660 512,712 434,664" fill="#34D399"/>
+  <polygon points="590,610 512,660 512,712 590,664" fill="#22C55E"/>
+
+  <!-- Eye on the front wall -->
+  <ellipse cx="512" cy="460" rx="90" ry="52" fill="#F8FAFC" stroke="#0B1324" stroke-width="10"/>
+  <circle cx="512" cy="460" r="28" fill="#10B981"/>
+  <circle cx="512" cy="460" r="12" fill="#0B1324"/>
+  <circle cx="522" cy="448" r="6" fill="#F8FAFC"/>
+</svg>
