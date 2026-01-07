@@ -3,6 +3,7 @@
 // // =========
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:ftpconnect/ftpconnect.dart';
@@ -39,6 +40,7 @@ class BambuFtp {
     );
     // Prefer classic LIST for compatibility (vsftpd often lacks MLSD)
     ftp.listCommand = ListCommand.list;
+    ftp.transferMode = TransferMode.passive;
     await ftp.connect().timeout(
       const Duration(seconds: 12),
       onTimeout: () {
@@ -63,22 +65,47 @@ class BambuFtp {
     String path, {
     Duration timeout = const Duration(seconds: 12),
   }) async {
-    final ftp = await _get();
     final target = path.isEmpty ? '/' : path;
+    if (config.useFtps) {
+      return _listFtpsSecure(target, timeout: timeout);
+    }
+    final ftp = await _get();
     try {
-      final resp = await ftp
-          .sendCustomCommand('ls $target')
-          .timeout(
-            timeout,
-            onTimeout: () {
-              throw TimeoutException('FTP ls timed out', timeout);
-            },
-          );
-      final entries = parseLsResponse(resp.message, currentPath: target);
-      if (entries.isEmpty) {
-        throw FTPConnectException('FTP ls returned no data');
+      final previousDir = await ftp.currentDirectory();
+      try {
+        final changed = await ftp.changeDirectory(target);
+        if (!changed) {
+          throw FTPConnectException('FTP CWD failed for $target');
+        }
+        final rawEntries = await ftp.listDirectoryContent().timeout(
+          timeout,
+          onTimeout: () {
+            throw TimeoutException('FTP LIST timed out', timeout);
+          },
+        );
+        final entries = rawEntries
+            .where((e) => e.name.isNotEmpty)
+            .map(
+              (e) => FtpEntry(
+                name: e.name,
+                isDir: e.type == FTPEntryType.dir,
+                size: e.size,
+                modified: e.modifyTime,
+                path: target.endsWith('/')
+                    ? '$target${e.name}'
+                    : '$target/${e.name}',
+              ),
+            )
+            .toList();
+        if (entries.isEmpty) {
+          throw FTPConnectException('FTP LIST returned no data');
+        }
+        return entries;
+      } finally {
+        try {
+          await ftp.changeDirectory(previousDir);
+        } catch (_) {}
       }
-      return entries;
     } on TimeoutException {
       await dispose();
       throw TimeoutException(
@@ -86,6 +113,176 @@ class BambuFtp {
         timeout,
       );
     }
+  }
+
+  Future<List<FtpEntry>> _listFtpsSecure(
+    String target, {
+    required Duration timeout,
+  }) async {
+    SecureSocket? control;
+    SecureSocket? data;
+    try {
+      control = await SecureSocket.connect(
+        config.printerIp,
+        config.ftpPort,
+        timeout: timeout,
+        onBadCertificate: (_) => true,
+      );
+      await _readResponse(control, timeout);
+      await _sendCommand(control, 'PBSZ 0', timeout);
+      await _sendCommand(control, 'PROT P', timeout);
+      await _sendCommand(control, 'USER bblp', timeout);
+      await _sendCommand(control, 'PASS ${config.accessCode}', timeout);
+
+      if (target != '/') {
+        await _sendCommand(control, 'CWD $target', timeout);
+      }
+
+      final pasv = await _sendCommand(control, 'PASV', timeout);
+      final endpoint = _parsePasvEndpoint(
+        pasv.message,
+        fallbackHost: config.printerIp,
+      );
+
+      data = await SecureSocket.connect(
+        endpoint.host,
+        endpoint.port,
+        timeout: timeout,
+        onBadCertificate: (_) => true,
+      );
+
+      await _sendCommand(control, 'LIST', timeout);
+      final listing = await _readDataSocket(data, timeout);
+      await _readResponse(control, timeout);
+
+      final entries = parseLsResponse(listing, currentPath: target);
+      if (entries.isEmpty) {
+        throw FTPConnectException('FTP LIST returned no data');
+      }
+      return entries;
+    } finally {
+      try {
+        data?.destroy();
+      } catch (_) {}
+      try {
+        control?.destroy();
+      } catch (_) {}
+    }
+  }
+
+  Future<_FtpReply> _sendCommand(
+    SecureSocket socket,
+    String command,
+    Duration timeout,
+  ) async {
+    socket.add(utf8.encode('$command\r\n'));
+    await socket.flush();
+    return _readResponse(socket, timeout);
+  }
+
+  Future<_FtpReply> _readResponse(
+    SecureSocket socket,
+    Duration timeout,
+  ) async {
+    final buffer = StringBuffer();
+    final completer = Completer<_FtpReply>();
+    late StreamSubscription<List<int>> sub;
+
+    void maybeComplete() {
+      final text = buffer.toString();
+      final lines = text.split('\n');
+      if (lines.isEmpty) return;
+
+      String? lastLine;
+      for (final line in lines.reversed) {
+        final trimmed = line.trimRight();
+        if (trimmed.isEmpty) continue;
+        lastLine = trimmed;
+        break;
+      }
+      if (lastLine == null || lastLine.length < 4) return;
+
+      final firstLine = lines.firstWhere(
+        (l) => l.trim().isNotEmpty,
+        orElse: () => '',
+      );
+      if (firstLine.length >= 4 && firstLine[3] == '-') {
+        final code = firstLine.substring(0, 3);
+        final hasEnd = lines.any((l) => l.startsWith('$code '));
+        if (!hasEnd) return;
+      }
+
+      if (!RegExp(r'^\d{3} ').hasMatch(lastLine)) return;
+      final code = int.tryParse(lastLine.substring(0, 3)) ?? 0;
+      sub.cancel();
+      completer.complete(_FtpReply(code, text));
+    }
+
+    sub = socket.listen(
+      (chunk) {
+        buffer.write(utf8.decode(chunk));
+        maybeComplete();
+      },
+      onError: (e) {
+        if (!completer.isCompleted) {
+          completer.completeError(e);
+        }
+      },
+      onDone: () {
+        if (!completer.isCompleted) {
+          completer.completeError(
+            FTPConnectException('FTP connection closed unexpectedly'),
+          );
+        }
+      },
+    );
+
+    return completer.future.timeout(timeout, onTimeout: () {
+      sub.cancel();
+      throw TimeoutException('FTP response timed out', timeout);
+    });
+  }
+
+  Future<String> _readDataSocket(
+    SecureSocket socket,
+    Duration timeout,
+  ) async {
+    final buffer = BytesBuilder();
+    final completer = Completer<String>();
+    late StreamSubscription<List<int>> sub;
+    sub = socket.listen(
+      (chunk) => buffer.add(chunk),
+      onError: (e) {
+        if (!completer.isCompleted) {
+          completer.completeError(e);
+        }
+      },
+      onDone: () {
+        if (!completer.isCompleted) {
+          completer.complete(utf8.decode(buffer.takeBytes()));
+        }
+      },
+    );
+
+    return completer.future.timeout(timeout, onTimeout: () {
+      sub.cancel();
+      throw TimeoutException('FTP data transfer timed out', timeout);
+    });
+  }
+
+  _PasvEndpoint _parsePasvEndpoint(
+    String message, {
+    required String fallbackHost,
+  }) {
+    final match = RegExp(r'\((\d+,\d+,\d+,\d+,\d+,\d+)\)').firstMatch(message);
+    if (match == null) {
+      throw FTPConnectException('Failed to parse PASV response: $message');
+    }
+    final parts = match.group(1)!.split(',').map(int.parse).toList();
+    final host = '${parts[0]}.${parts[1]}.${parts[2]}.${parts[3]}';
+    final port = (parts[4] << 8) + parts[5];
+    final resolvedHost = host == '0.0.0.0' ? fallbackHost : host;
+    return _PasvEndpoint(resolvedHost, port);
   }
 
   Future<void> ensureDir(String path) async {
@@ -158,4 +355,18 @@ class BambuFtp {
       modified: modified,
     );
   }
+}
+
+class _FtpReply {
+  final int code;
+  final String message;
+
+  const _FtpReply(this.code, this.message);
+}
+
+class _PasvEndpoint {
+  final String host;
+  final int port;
+
+  const _PasvEndpoint(this.host, this.port);
 }
