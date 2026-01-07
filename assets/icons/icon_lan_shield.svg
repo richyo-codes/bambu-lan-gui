@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0EA5E9"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="180" ry="180" fill="url(#bg)"/>
+  <!-- Shield -->
+  <path d="M512 220 C 620 270, 710 290, 780 302 C 780 540, 684 690, 512 780 C 340 690, 244 540, 244 302 C 314 290, 404 270, 512 220 Z"
+        fill="#0B1324" opacity="0.45" stroke="#E5F0FF" stroke-width="14"/>
+  <!-- Ethernet port inside shield -->
+  <rect x="372" y="420" width="280" height="190" rx="18" ry="18" fill="#EEF2FF"/>
+  <g fill="#4F46E5">
+    <rect x="396" y="444" width="36" height="120" rx="8"/>
+    <rect x="440" y="444" width="36" height="120" rx="8"/>
+    <rect x="484" y="444" width="36" height="120" rx="8"/>
+    <rect x="528" y="444" width="36" height="120" rx="8"/>
+    <rect x="572" y="444" width="36" height="120" rx="8"/>
+  </g>
+  <rect x="432" y="566" width="160" height="32" rx="10" fill="#C7D2FE"/>
+  <!-- Small lock to emphasize LAN-only/privacy -->
+  <rect x="616" y="536" width="64" height="64" rx="12" fill="#111827" opacity="0.5"/>
+  <rect x="626" y="546" width="44" height="44" rx="10" fill="#F8FAFC"/>
+  <path d="M 648 546 a 22 22 0 0 1 44 0 v 12 h -10 v -12 a 12 12 0 0 0 -24 0 v 12 h -10 z" fill="#F8FAFC"/>
+  <!-- Label -->
+  <text x="512" y="880" text-anchor="middle" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="60" fill="#E5E7EB" opacity="0.95">LAN ONLY</text>
+</svg>
+

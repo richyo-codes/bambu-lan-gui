@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#14B8A6"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="180" ry="180" fill="url(#bg)"/>
+  <!-- Printer frame -->
+  <rect x="260" y="260" width="504" height="504" rx="34" ry="34" fill="#0F172A" opacity="0.40"/>
+  <rect x="292" y="292" width="440" height="440" rx="20" ry="20" fill="none" stroke="#ECFEFF" stroke-width="16"/>
+  <!-- Rails -->
+  <rect x="320" y="340" width="384" height="18" rx="9" fill="#BAE6FD"/>
+  <rect x="320" y="660" width="384" height="18" rx="9" fill="#BAE6FD"/>
+  <!-- Cube model -->
+  <rect x="432" y="430" width="160" height="160" rx="14" ry="14" fill="#60A5FA"/>
+  <path d="M 432 430 L 512 390 L 592 430 L 512 470 Z" fill="#3B82F6"/>
+  <path d="M 512 470 L 592 430 L 592 590 L 512 630 Z" fill="#1D4ED8" opacity="0.9"/>
+  <!-- Nozzle -->
+  <rect x="502" y="350" width="20" height="54" rx="6" fill="#F8FAFC"/>
+  <rect x="492" y="404" width="40" height="16" rx="6" fill="#FCD34D"/>
+  <!-- Label -->
+  <text x="512" y="864" text-anchor="middle" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="64" fill="#F8FAFC">Print</text>
+</svg>
+

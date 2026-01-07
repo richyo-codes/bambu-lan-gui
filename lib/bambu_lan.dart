@@ -58,7 +58,9 @@ class BambuLanConfig {
     this.allowBadCerts = true,
     this.caCertPem,
     this.mqttPort = 8883,
-    this.ftpPort = 21,
+    //this.ftpPort = 21,
+    //this.useFtps = false,
+    this.ftpPort = 990,
     this.useFtps = true,
   });
 }
