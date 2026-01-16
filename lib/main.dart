@@ -140,13 +140,23 @@ class _StreamPageState extends State<StreamPage> {
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Screenshot saved to $filePath')),
+            SnackBar(
+              content: Text('Screenshot saved to $filePath'),
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 72),
+              duration: const Duration(seconds: 2),
+            ),
           );
         }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to capture screenshot')),
+            const SnackBar(
+              content: Text('Failed to capture screenshot'),
+              behavior: SnackBarBehavior.floating,
+              margin: EdgeInsets.fromLTRB(16, 0, 16, 72),
+              duration: Duration(seconds: 2),
+            ),
           );
         }
       }
@@ -154,7 +164,14 @@ class _StreamPageState extends State<StreamPage> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Screenshot failed: $e')));
+        ).showSnackBar(
+          SnackBar(
+            content: Text('Screenshot failed: $e'),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 72),
+            duration: const Duration(seconds: 2),
+          ),
+        );
       }
     }
   }
