@@ -519,7 +519,7 @@ class _StreamPageState extends State<StreamPage> {
                                   Positioned.fill(
                                     child: Video(
                                       controller: controller,
-                                      controls: NoVideoControls,
+                                      //controls: NoVideoControls,
                                     ),
                                   ),
                                   Positioned.fill(
@@ -569,13 +569,13 @@ class _StreamPageState extends State<StreamPage> {
                           ),
                         ),
                         if (_bufferFraction != null || _buffering)
-                          // Padding(
-                          //   padding: const EdgeInsets.symmetric(horizontal: 8),
-                          //   child: LinearProgressIndicator(
-                          //     value: _bufferFraction, // null => indeterminate
-                          //     minHeight: 4,
-                          //   ),
-                          // ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: LinearProgressIndicator(
+                              value: _bufferFraction, // null => indeterminate
+                              minHeight: 4,
+                            ),
+                          ),
                         if (_lastPrintStatus != null)
                           Padding(
                             padding: const EdgeInsets.all(8),
