@@ -28,16 +28,47 @@ class BambuFtp {
 
     var logger = Logger(isEnabled: true);
 
-    final ftp = FTPConnect(
-      config.printerIp,
-      user: 'bblp',
-      pass: config.accessCode,
-      port: useFtps ? config.ftpPort : 21,
-      securityType: securityType,
-      showLog: true,
-      logger: logger,
-      timeout: const Duration(seconds: 15).inSeconds,
-    );
+    FTPConnect ftp;
+    if (useFtps) {
+      try {
+        ftp = FTPConnect.withBackend(
+          CurlFTPBackend(
+            host: config.printerIp,
+            port: config.ftpPort,
+            securityType: securityType,
+            verifyCertificate: false,
+            secureDataChannel: true,
+          ),
+          user: 'bblp',
+          pass: config.accessCode,
+        );
+      } catch (e) {
+        stderr.writeln(
+          'Curl FTP backend unavailable, falling back to socket backend: $e',
+        );
+        ftp = FTPConnect(
+          config.printerIp,
+          user: 'bblp',
+          pass: config.accessCode,
+          port: useFtps ? config.ftpPort : 21,
+          securityType: securityType,
+          showLog: true,
+          logger: logger,
+          timeout: const Duration(seconds: 15).inSeconds,
+        );
+      }
+    } else {
+      ftp = FTPConnect(
+        config.printerIp,
+        user: 'bblp',
+        pass: config.accessCode,
+        port: useFtps ? config.ftpPort : 21,
+        securityType: securityType,
+        showLog: true,
+        logger: logger,
+        timeout: const Duration(seconds: 15).inSeconds,
+      );
+    }
     // Prefer classic LIST for compatibility (vsftpd often lacks MLSD)
     ftp.listCommand = ListCommand.list;
     ftp.transferMode = TransferMode.passive;
@@ -66,9 +97,6 @@ class BambuFtp {
     Duration timeout = const Duration(seconds: 12),
   }) async {
     final target = path.isEmpty ? '/' : path;
-    if (config.useFtps) {
-      return _listFtpsSecure(target, timeout: timeout);
-    }
     final ftp = await _get();
     try {
       final previousDir = await ftp.currentDirectory();

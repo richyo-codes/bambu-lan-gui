@@ -5,6 +5,7 @@ import 'package:rnd_bambu_rtsp_stream/bambu_ftp.dart';
 import 'package:rnd_bambu_rtsp_stream/bambu_lan.dart';
 import 'package:rnd_bambu_rtsp_stream/bambu_mqtt.dart';
 import 'package:rnd_bambu_rtsp_stream/settings_manager.dart';
+import 'window_drag_controller.dart';
 
 class FtpBrowserPage extends StatefulWidget {
   const FtpBrowserPage({super.key});
@@ -134,9 +135,15 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('FTP Browser'),
+        title: const WindowDragArea(
+          child: SizedBox(
+            width: double.infinity,
+            child: Text('FTP Browser'),
+          ),
+        ),
         actions: [
           IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
+          const WindowControlButtons(),
         ],
       ),
       body: Column(

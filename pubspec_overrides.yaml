@@ -1,0 +1,5 @@
+dependency_overrides:
+  ftpconnect:
+    git:
+      url: https://github.com/richnetdesign/dartFTP/
+      ref: ftp-backend-curl
