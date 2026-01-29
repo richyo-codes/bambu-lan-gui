@@ -5,6 +5,7 @@ import 'package:rnd_bambu_rtsp_stream/bambu_ftp.dart';
 import 'package:rnd_bambu_rtsp_stream/bambu_lan.dart';
 import 'package:rnd_bambu_rtsp_stream/bambu_mqtt.dart';
 import 'package:rnd_bambu_rtsp_stream/settings_manager.dart';
+import 'window_drag_controller.dart';
 
 class FtpBrowserPage extends StatefulWidget {
   const FtpBrowserPage({super.key});
@@ -21,7 +22,13 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
   bool _loading = true;
   String? _selectedFile;
   String _status = '';
-  String? _filament; // placeholder for future use
+  FilamentOption? _selectedFilament;
+  List<FilamentOption> _filamentOptions = const [];
+  final List<String> _printDebugLog = <String>[];
+  String? _pendingPrintSeq;
+  String? _pendingPrintCommand;
+  StreamSubscription<BambuReportEvent>? _mqttReportSub;
+  StreamSubscription<BambuCommandEvent>? _mqttCommandSub;
 
   @override
   void initState() {
@@ -41,14 +48,82 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
     );
     _ftp = BambuFtp(cfg);
     try {
-      // MQTT optional: only connect when printing
-      //final mqtt = BambuMqtt(cfg);
-      //await mqtt.connect();
-      //_mqtt = mqtt;
+      // MQTT optional; connect to pull filament info & print status.
+      final mqtt = BambuMqtt(cfg);
+      await mqtt.connect();
+      _mqtt = mqtt;
+      _subscribeMqtt(mqtt);
+      mqtt.requestPushAll().catchError((_) {});
     } catch (_) {
       // keep browsing; printing will try to reconnect
     }
     await _refresh();
+  }
+
+  void _subscribeMqtt(BambuMqtt mqtt) {
+    _mqttReportSub?.cancel();
+    _mqttCommandSub?.cancel();
+
+    _mqttReportSub = mqtt.reportStream.listen((event) {
+      _handleMqttReport(event);
+    });
+
+    _mqttCommandSub = mqtt.commandStream.listen((event) {
+      final payload = event.payload['print'];
+      if (payload is Map && payload['command'] != null) {
+        _logPrintDebug(
+          'CMD ${payload['command']} seq=${payload['sequence_id']} '
+          'topic=${event.topic}',
+        );
+      }
+    });
+  }
+
+  void _logPrintDebug(String message) {
+    final ts = DateTime.now().toIso8601String();
+    setState(() {
+      _printDebugLog.insert(0, '$ts $message');
+      if (_printDebugLog.length > 8) {
+        _printDebugLog.removeRange(8, _printDebugLog.length);
+      }
+    });
+  }
+
+  void _handleMqttReport(BambuReportEvent event) {
+    final print = event.json['print'];
+    if (print is Map) {
+      final options = _extractFilamentOptions(print);
+      if (options.isNotEmpty) {
+        setState(() {
+          _filamentOptions = options;
+          _selectedFilament ??= _selectCurrentFilament(print, options);
+        });
+      }
+
+      final seq = print['sequence_id']?.toString();
+      final cmd = print['command']?.toString();
+      if (_pendingPrintSeq != null &&
+          seq == _pendingPrintSeq &&
+          cmd == _pendingPrintCommand) {
+        final result = print['result']?.toString() ?? 'unknown';
+        final reason = print['reason']?.toString();
+        _logPrintDebug(
+          'RESP $cmd seq=$seq result=$result'
+          '${reason != null && reason.isNotEmpty ? ' reason=$reason' : ''}',
+        );
+        _pendingPrintSeq = null;
+        _pendingPrintCommand = null;
+      }
+    }
+  }
+
+  FilamentOption? _resolveSelectedFilament() {
+    final current = _selectedFilament;
+    if (current == null) return null;
+    for (final opt in _filamentOptions) {
+      if (opt.id == current.id) return opt;
+    }
+    return null;
   }
 
   Future<void> _refresh() async {
@@ -115,11 +190,24 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
         mqtt = BambuMqtt(cfg);
         await mqtt.connect();
         _mqtt = mqtt;
+        _subscribeMqtt(mqtt);
+        mqtt.requestPushAll().catchError((_) {});
       }
-      await _mqtt!.startPrintFromSd(file);
-      setState(() => _status = 'Print started: ${file.split('/').last}');
+      final cmd = file.endsWith('.gcode') ? 'gcode_file' : 'start';
+      final filament = _selectedFilament?.label;
+      _logPrintDebug(
+        'PRINT request: $cmd file=$file'
+        '${filament != null ? ' | filament=$filament' : ''}',
+      );
+      final seq = file.endsWith('.gcode')
+          ? await _mqtt!.printGcodeFile(file)
+          : await _mqtt!.startPrintFromSd(file);
+      _pendingPrintSeq = seq;
+      _pendingPrintCommand = cmd;
+      setState(() => _status = 'Print requested: ${file.split('/').last}');
     } catch (e) {
       setState(() => _status = 'Start print failed: $e');
+      _logPrintDebug('ERROR start print: $e');
     }
   }
 
@@ -127,6 +215,8 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
   void dispose() {
     _mqtt?.dispose();
     _ftp.dispose();
+    _mqttReportSub?.cancel();
+    _mqttCommandSub?.cancel();
     super.dispose();
   }
 
@@ -134,9 +224,15 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('FTP Browser'),
+        title: const WindowDragArea(
+          child: SizedBox(
+            width: double.infinity,
+            child: Text('FTP Browser'),
+          ),
+        ),
         actions: [
           IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
+          const WindowControlButtons(),
         ],
       ),
       body: Column(
@@ -214,17 +310,65 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
                   children: [
                     const Text('Filament (optional): '),
                     const SizedBox(width: 8),
-                    SizedBox(
-                      width: 180,
-                      child: TextField(
+                    Expanded(
+                      child: DropdownButtonFormField<FilamentOption>(
+                        isExpanded: true,
+                        value: _resolveSelectedFilament(),
                         decoration: const InputDecoration(
-                          hintText: 'e.g., AMS slot A1',
+                          hintText: 'Select filament',
                         ),
-                        onChanged: (v) => _filament = v,
+                        items: _filamentOptions
+                            .map(
+                              (f) => DropdownMenuItem<FilamentOption>(
+                                value: f,
+                                child: Row(
+                                  children: [
+                                    if (f.color != null)
+                                      Container(
+                                        width: 12,
+                                        height: 12,
+                                        margin: const EdgeInsets.only(right: 8),
+                                        decoration: BoxDecoration(
+                                          color: f.color,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: Colors.black26,
+                                          ),
+                                        ),
+                                      ),
+                                    Expanded(
+                                      child: Text(
+                                        f.label,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (v) => setState(() => _selectedFilament = v),
                       ),
                     ),
                   ],
                 ),
+                if (_printDebugLog.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Print debug',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  ..._printDebugLog.map(
+                    (line) => Text(
+                      line,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+                ],
                 if (_status.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Text(_status, style: const TextStyle(color: Colors.grey)),
@@ -235,5 +379,103 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
         ],
       ),
     );
+  }
+}
+
+class FilamentOption {
+  final String id;
+  final String label;
+  final Color? color;
+
+  const FilamentOption({required this.id, required this.label, this.color});
+}
+
+List<FilamentOption> _extractFilamentOptions(Map print) {
+  final options = <FilamentOption>[];
+  final amsContainer = print['ams'];
+  if (amsContainer is Map) {
+    final amsList = amsContainer['ams'];
+    if (amsList is List) {
+      for (final ams in amsList) {
+        if (ams is! Map) continue;
+        final amsId = ams['id']?.toString() ?? '?';
+        final trayList = ams['tray'];
+        if (trayList is List) {
+          for (final tray in trayList) {
+            if (tray is! Map) continue;
+            final trayId = tray['id']?.toString() ?? '';
+            if (trayId.isEmpty) continue;
+            if (tray.keys.length == 1 && trayId == '0') {
+              // Empty tray entry.
+              continue;
+            }
+            final trayType = tray['tray_type']?.toString() ?? '';
+            final trayName = tray['tray_id_name']?.toString() ?? '';
+            final trayColor = _parseTrayColor(tray['tray_color']?.toString());
+            final labelParts = <String>[
+              'AMS $amsId / Slot $trayId',
+              if (trayType.isNotEmpty) trayType,
+              if (trayName.isNotEmpty) trayName,
+            ];
+            options.add(
+              FilamentOption(
+                id: 'ams:$amsId:$trayId',
+                label: labelParts.join(' • '),
+                color: trayColor,
+              ),
+            );
+          }
+        }
+      }
+    }
+  }
+
+  final vtTray = print['vt_tray'];
+  if (vtTray is Map) {
+    options.add(
+      const FilamentOption(
+        id: 'external',
+        label: 'External Spool',
+      ),
+    );
+  }
+
+  return options;
+}
+
+Color? _parseTrayColor(String? value) {
+  if (value == null) return null;
+  final hex = value.trim();
+  if (hex.length != 8) return null; // RRGGBBAA
+  final parsed = int.tryParse(hex, radix: 16);
+  if (parsed == null) return null;
+  final r = (parsed >> 24) & 0xFF;
+  final g = (parsed >> 16) & 0xFF;
+  final b = (parsed >> 8) & 0xFF;
+  final a = parsed & 0xFF;
+  return Color.fromARGB(a, r, g, b);
+}
+
+FilamentOption? _selectCurrentFilament(
+  Map print,
+  List<FilamentOption> options,
+) {
+  final trayNow = print['tray_now']?.toString();
+  if (trayNow == null || trayNow.isEmpty || trayNow == '255') return null;
+  final trayNum = int.tryParse(trayNow);
+  if (trayNum == null) return null;
+  if (trayNum == 254) {
+    for (final opt in options) {
+      if (opt.id == 'external') return opt;
+    }
+    return null;
+  }
+  final amsId = trayNum ~/ 4;
+  final trayId = trayNum % 4;
+  final id = 'ams:$amsId:$trayId';
+  try {
+    return options.firstWhere((o) => o.id == id);
+  } catch (_) {
+    return null;
   }
 }

@@ -14,7 +14,7 @@ concurrency:
 jobs:
   android:
     name: Android APK
-    runs-on: [ubuntu-latest, flutter]
+    runs-on: [ubuntu-latest]
     concurrency:
       group: build
     steps:
@@ -68,7 +68,7 @@ jobs:
 
   linux:
     name: Linux x64
-    runs-on: [ubuntu-latest, flutter]
+    runs-on: [ubuntu-latest]
     concurrency:
       group: build
     steps:
@@ -148,7 +148,7 @@ jobs:
 
   windows:
     name: Windows x64
-    runs-on: [ubuntu-latest, flutter]
+    runs-on: [ubuntu-latest]
     concurrency:
       group: build
     steps:
@@ -206,42 +206,42 @@ jobs:
           path: '**/*.msix'
           retention-days: 7
 
-  ios:
-    name: iOS (no codesign)
-    runs-on: [macos-latest, flutter]
-    concurrency:
-      group: build
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+  # ios:
+  #   name: iOS (no codesign)
+  #   runs-on: [macos-latest, flutter]
+  #   concurrency:
+  #     group: build
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
 
-      - name: Git describe
-        id: ghd
-        run: |
-          echo "tag=$(git describe --always --tags --dirty)" >> "$GITHUB_OUTPUT"
+  #     - name: Git describe
+  #       id: ghd
+  #       run: |
+  #         echo "tag=$(git describe --always --tags --dirty)" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
+  #     - name: Set up Flutter
+  #       uses: subosito/flutter-action@v2
+  #       with:
+  #         channel: stable
 
-      - name: Flutter pub get
-        run: flutter pub get
+  #     - name: Flutter pub get
+  #       run: flutter pub get
 
-      - name: Build iOS (no codesign)
-        run: flutter build ios --no-codesign
+  #     - name: Build iOS (no codesign)
+  #       run: flutter build ios --no-codesign
 
-      - name: Package Runner.app
-        run: |
-          cd build/ios/iphoneos
-          cp "$GITHUB_WORKSPACE/LICENSe" LICENSE 2>/dev/null || true
-          # Ensure LICENSE present; fall back to workspace path
-          if [ ! -f LICENSE ]; then cp "$GITHUB_WORKSPACE/LICENSE" LICENSE; fi
-          zip -r "Runner-$SEMVER.app.zip" Runner.app LICENSE
+  #     - name: Package Runner.app
+  #       run: |
+  #         cd build/ios/iphoneos
+  #         cp "$GITHUB_WORKSPACE/LICENSe" LICENSE 2>/dev/null || true
+  #         # Ensure LICENSE present; fall back to workspace path
+  #         if [ ! -f LICENSE ]; then cp "$GITHUB_WORKSPACE/LICENSE" LICENSE; fi
+  #         zip -r "Runner-$SEMVER.app.zip" Runner.app LICENSE
 
-      - name: Upload iOS artifact (Runner.app.zip)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-runner-app-${{ env.SEMVER }}
-          path: build/ios/iphoneos/Runner-*.app.zip
-          retention-days: 7
+  #     - name: Upload iOS artifact (Runner.app.zip)
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: ios-runner-app-${{ env.SEMVER }}
+  #         path: build/ios/iphoneos/Runner-*.app.zip
+  #         retention-days: 7

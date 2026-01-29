@@ -1,23 +1,43 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0EA5E9"/>
-      <stop offset="100%" stop-color="#1D4ED8"/>
+      <stop offset="0%" stop-color="#0B4B6B"/>
+      <stop offset="100%" stop-color="#0A8DD8"/>
     </linearGradient>
+    <linearGradient id="cubeTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#BCEBFF"/>
+      <stop offset="100%" stop-color="#5BB2FF"/>
+    </linearGradient>
+    <linearGradient id="cubeLeft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2E6FCF"/>
+      <stop offset="100%" stop-color="#1D4B9E"/>
+    </linearGradient>
+    <linearGradient id="cubeRight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4D93FF"/>
+      <stop offset="100%" stop-color="#2C63C7"/>
+    </linearGradient>
+    <radialGradient id="iris" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#9AE6FF"/>
+      <stop offset="70%" stop-color="#1D6BD8"/>
+      <stop offset="100%" stop-color="#0B2F5B"/>
+    </radialGradient>
   </defs>
   <rect x="64" y="64" width="896" height="896" rx="180" ry="180" fill="url(#bg)"/>
-  <!-- Camera body -->
-  <rect x="260" y="420" width="380" height="220" rx="28" ry="28" fill="#0B1324" opacity="0.5"/>
-  <rect x="280" y="440" width="340" height="180" rx="20" ry="20" fill="#E2E8F0"/>
-  <!-- Lens -->
-  <circle cx="420" cy="530" r="54" fill="#0EA5E9"/>
-  <circle cx="420" cy="530" r="20" fill="#1E293B"/>
-  <!-- Side triangle (stream) -->
-  <polygon points="640,470 760,530 640,590" fill="#F59E0B"/>
-  <!-- Wi-Fi waves -->
-  <path d="M 680 380 C 760 420, 800 460, 820 520" fill="none" stroke="#FDE68A" stroke-width="14" stroke-linecap="round"/>
-  <path d="M 640 340 C 760 400, 840 480, 860 560" fill="none" stroke="#FDE68A" stroke-width="10" stroke-linecap="round" opacity="0.8"/>
-  <!-- Label -->
-  <text x="512" y="870" text-anchor="middle" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="64" fill="#E5E7EB">Stream</text>
-</svg>
 
+  <ellipse cx="512" cy="700" rx="260" ry="80" fill="#0B1324" opacity="0.25"/>
+
+  <!-- 3D cube -->
+  <polygon points="512,310 708,410 512,520 316,410" fill="url(#cubeTop)"/>
+  <polygon points="316,410 512,520 512,740 316,620" fill="url(#cubeLeft)"/>
+  <polygon points="708,410 512,520 512,740 708,620" fill="url(#cubeRight)"/>
+
+  <!-- Eye watching the cube -->
+  <ellipse cx="730" cy="360" rx="120" ry="70" fill="#F8FAFC" stroke="#0B1324" stroke-width="12"/>
+  <circle cx="730" cy="360" r="42" fill="url(#iris)"/>
+  <circle cx="730" cy="360" r="18" fill="#0B1324"/>
+  <circle cx="748" cy="344" r="8" fill="#F8FAFC"/>
+
+  <!-- Watch rays -->
+  <path d="M 820 300 C 868 320, 894 340, 916 372" fill="none" stroke="#DFF6FF" stroke-width="10" stroke-linecap="round" opacity="0.8"/>
+  <path d="M 810 260 C 876 292, 914 330, 942 380" fill="none" stroke="#DFF6FF" stroke-width="8" stroke-linecap="round" opacity="0.6"/>
+</svg>
