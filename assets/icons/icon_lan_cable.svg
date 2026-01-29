@@ -1,28 +1,45 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#6366F1"/>
-      <stop offset="100%" stop-color="#4338CA"/>
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="plugTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#E0E7FF"/>
+      <stop offset="100%" stop-color="#93C5FD"/>
+    </linearGradient>
+    <linearGradient id="plugLeft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#60A5FA"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="plugRight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#1E40AF"/>
     </linearGradient>
   </defs>
   <rect x="64" y="64" width="896" height="896" rx="180" ry="180" fill="url(#bg)"/>
-  <!-- RJ45 head -->
-  <rect x="300" y="300" width="424" height="280" rx="28" ry="28" fill="#111827" opacity="0.4"/>
-  <rect x="320" y="320" width="384" height="180" rx="18" ry="18" fill="#EEF2FF"/>
-  <!-- Pins -->
-  <g fill="#4F46E5">
-    <rect x="348" y="344" width="44" height="132" rx="8"/>
-    <rect x="402" y="344" width="44" height="132" rx="8"/>
-    <rect x="456" y="344" width="44" height="132" rx="8"/>
-    <rect x="510" y="344" width="44" height="132" rx="8"/>
-    <rect x="564" y="344" width="44" height="132" rx="8"/>
-    <rect x="618" y="344" width="44" height="132" rx="8"/>
-  </g>
-  <!-- Latch -->
-  <rect x="420" y="508" width="200" height="40" rx="10" fill="#C7D2FE"/>
-  <!-- Cable curve -->
-  <path d="M 512 580 C 512 720, 360 740, 320 860" fill="none" stroke="#E0E7FF" stroke-width="30" stroke-linecap="round"/>
-  <!-- Label -->
-  <text x="512" y="880" text-anchor="middle" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="64" fill="#E0E7FF" opacity="0.95">LAN</text>
-</svg>
 
+  <!-- Cable -->
+  <path d="M 760 700 C 700 760, 580 800, 420 860" fill="none" stroke="#E0E7FF" stroke-width="32" stroke-linecap="round"/>
+
+  <!-- 3D plug -->
+  <polygon points="512,300 720,420 512,540 304,420" fill="url(#plugTop)"/>
+  <polygon points="304,420 512,540 512,760 304,640" fill="url(#plugLeft)"/>
+  <polygon points="720,420 512,540 512,760 720,640" fill="url(#plugRight)"/>
+
+  <!-- Pins on right face -->
+  <rect x="560" y="520" width="140" height="36" rx="10" fill="#DBEAFE"/>
+  <g fill="#1E40AF">
+    <rect x="570" y="520" width="18" height="56" rx="5"/>
+    <rect x="594" y="520" width="18" height="56" rx="5"/>
+    <rect x="618" y="520" width="18" height="56" rx="5"/>
+    <rect x="642" y="520" width="18" height="56" rx="5"/>
+    <rect x="666" y="520" width="18" height="56" rx="5"/>
+  </g>
+
+  <!-- Eye on top face -->
+  <ellipse cx="512" cy="420" rx="90" ry="52" fill="#F8FAFC" stroke="#0B1324" stroke-width="8"/>
+  <circle cx="512" cy="420" r="22" fill="#3B82F6"/>
+  <circle cx="512" cy="420" r="10" fill="#0B1324"/>
+  <circle cx="522" cy="412" r="5" fill="#F8FAFC"/>
+</svg>

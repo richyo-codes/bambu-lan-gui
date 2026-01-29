@@ -11,6 +11,8 @@ class AppSettings {
   String serialNumber;
   PrinterUrlType selectedFormat;
   String customUrl;
+  bool autoConnect;
+  bool mqttControlsEnabled;
 
   AppSettings({
     required this.specialCode,
@@ -18,6 +20,8 @@ class AppSettings {
     required this.serialNumber,
     required this.selectedFormat,
     required this.customUrl,
+    this.autoConnect = false,
+    this.mqttControlsEnabled = false,
   });
 
   // JSON serialization
@@ -27,6 +31,8 @@ class AppSettings {
         'serialNumber': serialNumber,
         'selectedFormat': selectedFormat.storageKey,
         'customUrl': customUrl,
+        'autoConnect': autoConnect,
+        'mqttControlsEnabled': mqttControlsEnabled,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -37,6 +43,8 @@ class AppSettings {
       selectedFormat:
           PrinterUrlTypeX.parse(json['selectedFormat'] as String? ?? 'Bambu X1C'),
       customUrl: (json['customUrl'] ?? '') as String,
+      autoConnect: (json['autoConnect'] ?? false) as bool,
+      mqttControlsEnabled: (json['mqttControlsEnabled'] ?? false) as bool,
     );
   }
 
@@ -48,6 +56,9 @@ class AppSettings {
       selectedFormat:
           PrinterUrlTypeX.parse(prefs.getString('rtsp_format') ?? 'Bambu X1C'),
       customUrl: prefs.getString('rtsp_custom_url') ?? '',
+      autoConnect: prefs.getBool('rtsp_auto_connect') ?? false,
+      mqttControlsEnabled:
+          prefs.getBool('rtsp_mqtt_controls_enabled') ?? false,
     );
   }
 
@@ -58,6 +69,11 @@ class AppSettings {
     await prefs.setString('rtsp_serial_number', serialNumber);
     await prefs.setString('rtsp_format', selectedFormat.storageKey);
     await prefs.setString('rtsp_custom_url', customUrl);
+    await prefs.setBool('rtsp_auto_connect', autoConnect);
+    await prefs.setBool(
+      'rtsp_mqtt_controls_enabled',
+      mqttControlsEnabled,
+    );
   }
 }
 
@@ -87,20 +103,94 @@ class SettingsManager {
     }
   }
 
-  static Future<AppSettings> loadSettings() async {
+  static Future<AppSettings?> _loadFromJsonFilePath(String path) async {
+    try {
+      final jsonString = await readSettingsFileAtPath(path);
+      if (jsonString == null) return null;
+      final data = jsonDecode(jsonString) as Map<String, dynamic>;
+      return AppSettings.fromJson(data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static AppSettings _applyOverrides(
+    AppSettings base, {
+    String? specialCode,
+    String? printerIp,
+    String? serialNumber,
+    String? selectedFormat,
+    String? customUrl,
+    bool? autoConnect,
+    bool? mqttControlsEnabled,
+  }) {
+    final next = AppSettings(
+      specialCode: specialCode?.isNotEmpty == true ? specialCode! : base.specialCode,
+      printerIp: printerIp?.isNotEmpty == true ? printerIp! : base.printerIp,
+      serialNumber:
+          serialNumber?.isNotEmpty == true ? serialNumber! : base.serialNumber,
+      selectedFormat: selectedFormat != null && selectedFormat.trim().isNotEmpty
+          ? PrinterUrlTypeX.parse(selectedFormat)
+          : base.selectedFormat,
+      customUrl: customUrl?.isNotEmpty == true ? customUrl! : base.customUrl,
+      autoConnect: autoConnect ?? base.autoConnect,
+      mqttControlsEnabled: mqttControlsEnabled ?? base.mqttControlsEnabled,
+    );
+    if (customUrl != null && customUrl.trim().isNotEmpty) {
+      return AppSettings(
+        specialCode: next.specialCode,
+        printerIp: next.printerIp,
+        serialNumber: next.serialNumber,
+        selectedFormat: PrinterUrlType.custom,
+        customUrl: next.customUrl,
+      );
+    }
+    return next;
+  }
+
+  static Future<AppSettings> loadSettings({
+    String? overridePath,
+    String? overrideSpecialCode,
+    String? overridePrinterIp,
+    String? overrideSerialNumber,
+    String? overrideSelectedFormat,
+    String? overrideCustomUrl,
+    bool? overrideAutoConnect,
+    bool? overrideMqttControlsEnabled,
+  }) async {
     if (_cachedSettings != null) return _cachedSettings!;
 
-    // Prefer JSON file if present; fall back to SharedPreferences
-    final fromFile = await _loadFromJsonFile();
+    // Prefer explicit file if provided; else use app-managed file.
+    final fromFile = overridePath != null && overridePath.trim().isNotEmpty
+        ? await _loadFromJsonFilePath(overridePath.trim())
+        : await _loadFromJsonFile();
     if (fromFile != null) {
-      _cachedSettings = fromFile;
+      _cachedSettings = _applyOverrides(
+        fromFile,
+        specialCode: overrideSpecialCode,
+        printerIp: overridePrinterIp,
+        serialNumber: overrideSerialNumber,
+        selectedFormat: overrideSelectedFormat,
+        customUrl: overrideCustomUrl,
+        autoConnect: overrideAutoConnect,
+        mqttControlsEnabled: overrideMqttControlsEnabled,
+      );
       // Keep SharedPreferences in sync
-      await fromFile.saveToPrefs();
+      await _cachedSettings!.saveToPrefs();
       return _cachedSettings!;
     }
 
     final prefs = await SharedPreferences.getInstance();
-    _cachedSettings = AppSettings.fromPrefs(prefs);
+    _cachedSettings = _applyOverrides(
+      AppSettings.fromPrefs(prefs),
+      specialCode: overrideSpecialCode,
+      printerIp: overridePrinterIp,
+      serialNumber: overrideSerialNumber,
+      selectedFormat: overrideSelectedFormat,
+      customUrl: overrideCustomUrl,
+      autoConnect: overrideAutoConnect,
+      mqttControlsEnabled: overrideMqttControlsEnabled,
+    );
     return _cachedSettings!;
   }
 

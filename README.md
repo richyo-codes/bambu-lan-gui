@@ -12,10 +12,6 @@ To access the camera stream from the LAN, one of the following must be true:
 - Or you are running an older firmware that still exposes RTSP/RTSPS without Developer Mode. 
 - For additional firmware information see https://wiki.bambulab.com/en/x1/manual/X1-X1C-AMS-firmware-release-history
 
-Notes:
-- The app’s “Bambu X1C” URL template expects the printer’s special (developer) code and the printer’s LAN IP address.
-- Newer firmware typically requires Developer Mode for LAN camera access.
-
 ## Risks of Enabling Developer Mode
 
 Enabling Developer Mode relaxes some security protections intended for regular users. Typical risks include:
@@ -49,7 +45,7 @@ The app previews the generated URL for the selected format.
 
 ### Import/Export Settings
 
-- Import: Use the Import button (AppBar or footer) to choose a `.json` file. The app accepts both camelCase keys and legacy `rtsp_*` keys.
+- Import: Use the Import button (AppBar or footer) to choose a `.json` file. 
 - Export: Use the Export button to save current settings to a `.json` file. A toast will show the save location when available.
 
 ### Where Settings Are Stored
