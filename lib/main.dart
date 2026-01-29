@@ -163,16 +163,8 @@ class _StreamPageState extends State<StreamPage> {
   bool _autoLightWhilePrinting = false;
   bool _wasPrinting = false;
   bool _mqttConnected = false;
-  Timer? _statusLogTimer;
-  static const Duration _statusLogInterval = Duration(seconds: 10);
   String _lightNode = 'chamber_light';
   bool _mqttControlsEnabled = false;
-  bool _mqttDebugEnabled = true;
-  DateTime? _lastMqttDebugAt;
-  static const Duration _mqttDebugInterval = Duration(seconds: 5);
-  int _mqttReportCount = 0;
-  int _mqttPrintCount = 0;
-  int _mqttSystemCount = 0;
 
   // Stall detection & reconnect
   Timer? _stallTimer;
@@ -380,7 +372,6 @@ class _StreamPageState extends State<StreamPage> {
     _errorSub?.cancel();
     _playingSub?.cancel();
     _controlsHideTimer?.cancel();
-    _statusLogTimer?.cancel();
     player.dispose();
     mqttClient?.dispose();
     super.dispose();
@@ -436,12 +427,10 @@ class _StreamPageState extends State<StreamPage> {
               printerStatus = 'MQTT Connected';
             });
           }
-          _startStatusLogger();
           mqttClient!.requestPushAll().catchError((_) {});
           // Listen for printer reports if connection succeeds
           mqttClient!.reportStream.listen((event) {
             if (!mounted) return;
-            _logMqttDebug(event);
             final detectedNode = _detectLightNode(event.json);
             if (detectedNode != null) {
               _lightNode = detectedNode;
@@ -494,7 +483,6 @@ class _StreamPageState extends State<StreamPage> {
     await player.stop();
     mqttClient?.dispose();
     _stallTimer?.cancel();
-    _statusLogTimer?.cancel();
     setState(() {
       isStreaming = false;
       currentStreamUrl = null;
@@ -504,69 +492,6 @@ class _StreamPageState extends State<StreamPage> {
       _wasPrinting = false;
       _mqttConnected = false;
     });
-  }
-
-  void _startStatusLogger() {
-    _statusLogTimer?.cancel();
-    _statusLogTimer = Timer.periodic(_statusLogInterval, (_) {
-      if (!mounted || !isStreaming) return;
-      final ps = _lastPrintStatus;
-      if (ps == null) {
-        debugPrint('MQTT: ${_mqttConnected ? 'connected' : 'disconnected'} '
-            '| Status: $printerStatus');
-        return;
-      }
-      final pct = ps.percent != null ? '${ps.percent}%' : '-';
-      final left = ps.remainingMinutes != null ? '${ps.remainingMinutes}m' : '-';
-      final layer = (ps.layer != null || ps.totalLayers != null)
-          ? '${ps.layer ?? '?'} / ${ps.totalLayers ?? '?'}'
-          : '-';
-      debugPrint(
-        'MQTT: ${_mqttConnected ? 'connected' : 'disconnected'} '
-        '| State: ${ps.gcodeState} '
-        '| Progress: $pct '
-        '| Time left: $left '
-        '| Layer: $layer',
-      );
-    });
-  }
-
-  void _logMqttDebug(BambuReportEvent event) {
-    if (!_mqttDebugEnabled) return;
-    _mqttReportCount++;
-    if (event.printStatus != null) {
-      _mqttPrintCount++;
-    } else if (event.type == 'SYSTEM') {
-      _mqttSystemCount++;
-    }
-    final now = DateTime.now();
-    if (_lastMqttDebugAt != null &&
-        now.difference(_lastMqttDebugAt!) < _mqttDebugInterval) {
-      return;
-    }
-    _lastMqttDebugAt = now;
-
-    final topKeys = event.json.keys.join(', ');
-    final printMap = event.json['print'];
-    String printKeys = '-';
-    if (printMap is Map) {
-      printKeys = printMap.keys.take(12).join(', ');
-      if (printMap.keys.length > 12) {
-        printKeys = '$printKeys, ...';
-      }
-    }
-    final gcodeState = event.printStatus?.gcodeState ??
-        (printMap is Map ? printMap['gcode_state'] : null);
-    // Use print to ensure visibility in release/CLI logs.
-    // ignore: avoid_print
-    print(
-      'MQTT report #$_mqttReportCount '
-      '(print=$_mqttPrintCount, system=$_mqttSystemCount) '
-      '| type=${event.type ?? '-'} '
-      '| gcode_state=${gcodeState ?? '-'} '
-      '| topKeys=[$topKeys] '
-      '| printKeys=[$printKeys]',
-    );
   }
 
   void _setupPlayerListeners() {

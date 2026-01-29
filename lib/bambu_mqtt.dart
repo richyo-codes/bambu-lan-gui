@@ -255,7 +255,6 @@ class BambuMqtt {
       timestamp: DateTime.now(),
     );
     _commands.add(evt);
-    stderr.writeln('[MQTT CMD ${evt.timestamp.toIso8601String()}] ${evt.topic} ${jsonEncode(evt.payload)}');
     _client.publishMessage(topic, qos, b.payload!);
   }
 
@@ -359,16 +358,32 @@ class BambuMqtt {
   /// [sdPath] is a device-visible absolute path to the uploaded .3mf/.gcode.
   /// Note: Different firmware builds expect slightly different keys.
   /// If you receive a verification error, inspect the report and adjust.
-  Future<void> startPrintFromSd(String sdPath) async {
+  Future<String> startPrintFromSd(String sdPath) async {
+    final seq = (_seq++).toString();
     final payload = {
       'print': {
-        'sequence_id': (_seq++).toString(),
+        'sequence_id': seq,
         'command': 'start',
         // Many firmwares accept one of these forms — try a conservative one:
         'param': {'file': sdPath, 'is_lan': 1},
       },
     };
     await publishRequest(payload);
+    return seq;
+  }
+
+  /// Print a G-code file already on the printer.
+  Future<String> printGcodeFile(String gcodePath) async {
+    final seq = (_seq++).toString();
+    final payload = {
+      'print': {
+        'sequence_id': seq,
+        'command': 'gcode_file',
+        'param': gcodePath,
+      },
+    };
+    await publishRequest(payload, qos: MqttQos.atLeastOnce);
+    return seq;
   }
 
   /// Request a full status push (use sparingly on some models).
