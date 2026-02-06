@@ -13,6 +13,7 @@ class AppSettings {
   String customUrl;
   bool autoConnect;
   bool mqttControlsEnabled;
+  bool lightControlsEnabled;
 
   AppSettings({
     required this.specialCode,
@@ -22,6 +23,7 @@ class AppSettings {
     required this.customUrl,
     this.autoConnect = false,
     this.mqttControlsEnabled = false,
+    this.lightControlsEnabled = false,
   });
 
   // JSON serialization
@@ -33,6 +35,7 @@ class AppSettings {
         'customUrl': customUrl,
         'autoConnect': autoConnect,
         'mqttControlsEnabled': mqttControlsEnabled,
+        'lightControlsEnabled': lightControlsEnabled,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -45,6 +48,7 @@ class AppSettings {
       customUrl: (json['customUrl'] ?? '') as String,
       autoConnect: (json['autoConnect'] ?? false) as bool,
       mqttControlsEnabled: (json['mqttControlsEnabled'] ?? false) as bool,
+      lightControlsEnabled: (json['lightControlsEnabled'] ?? false) as bool,
     );
   }
 
@@ -59,6 +63,8 @@ class AppSettings {
       autoConnect: prefs.getBool('rtsp_auto_connect') ?? false,
       mqttControlsEnabled:
           prefs.getBool('rtsp_mqtt_controls_enabled') ?? false,
+      lightControlsEnabled:
+          prefs.getBool('rtsp_light_controls_enabled') ?? false,
     );
   }
 
@@ -73,6 +79,10 @@ class AppSettings {
     await prefs.setBool(
       'rtsp_mqtt_controls_enabled',
       mqttControlsEnabled,
+    );
+    await prefs.setBool(
+      'rtsp_light_controls_enabled',
+      lightControlsEnabled,
     );
   }
 }
@@ -123,6 +133,7 @@ class SettingsManager {
     String? customUrl,
     bool? autoConnect,
     bool? mqttControlsEnabled,
+    bool? lightControlsEnabled,
   }) {
     final next = AppSettings(
       specialCode: specialCode?.isNotEmpty == true ? specialCode! : base.specialCode,
@@ -135,6 +146,7 @@ class SettingsManager {
       customUrl: customUrl?.isNotEmpty == true ? customUrl! : base.customUrl,
       autoConnect: autoConnect ?? base.autoConnect,
       mqttControlsEnabled: mqttControlsEnabled ?? base.mqttControlsEnabled,
+      lightControlsEnabled: lightControlsEnabled ?? base.lightControlsEnabled,
     );
     if (customUrl != null && customUrl.trim().isNotEmpty) {
       return AppSettings(
@@ -157,6 +169,7 @@ class SettingsManager {
     String? overrideCustomUrl,
     bool? overrideAutoConnect,
     bool? overrideMqttControlsEnabled,
+    bool? overrideLightControlsEnabled,
   }) async {
     if (_cachedSettings != null) return _cachedSettings!;
 
@@ -174,6 +187,7 @@ class SettingsManager {
         customUrl: overrideCustomUrl,
         autoConnect: overrideAutoConnect,
         mqttControlsEnabled: overrideMqttControlsEnabled,
+        lightControlsEnabled: overrideLightControlsEnabled,
       );
       // Keep SharedPreferences in sync
       await _cachedSettings!.saveToPrefs();
@@ -190,6 +204,7 @@ class SettingsManager {
       customUrl: overrideCustomUrl,
       autoConnect: overrideAutoConnect,
       mqttControlsEnabled: overrideMqttControlsEnabled,
+      lightControlsEnabled: overrideLightControlsEnabled,
     );
     return _cachedSettings!;
   }
