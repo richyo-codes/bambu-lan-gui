@@ -27,6 +27,7 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
   final List<String> _printDebugLog = <String>[];
   String? _pendingPrintSeq;
   String? _pendingPrintCommand;
+  Timer? _pendingPrintTimer;
   StreamSubscription<BambuReportEvent>? _mqttReportSub;
   StreamSubscription<BambuCommandEvent>? _mqttCommandSub;
 
@@ -113,6 +114,7 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
         );
         _pendingPrintSeq = null;
         _pendingPrintCommand = null;
+        _pendingPrintTimer?.cancel();
       }
     }
   }
@@ -193,17 +195,28 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
         _subscribeMqtt(mqtt);
         mqtt.requestPushAll().catchError((_) {});
       }
-      final cmd = file.endsWith('.gcode') ? 'gcode_file' : 'start';
+      final isGcode = file.endsWith('.gcode');
+      if (!isGcode) {
+        _logPrintDebug('Note: 3MF via FTP uses start; may not be supported.');
+      }
+      final cmd = isGcode ? 'gcode_file' : 'start';
       final filament = _selectedFilament?.label;
       _logPrintDebug(
         'PRINT request: $cmd file=$file'
         '${filament != null ? ' | filament=$filament' : ''}',
       );
-      final seq = file.endsWith('.gcode')
+      final seq = isGcode
           ? await _mqtt!.printGcodeFile(file)
           : await _mqtt!.startPrintFromSd(file);
       _pendingPrintSeq = seq;
       _pendingPrintCommand = cmd;
+      _pendingPrintTimer?.cancel();
+      _pendingPrintTimer = Timer(const Duration(seconds: 8), () {
+        if (!mounted) return;
+        if (_pendingPrintSeq != null) {
+          _logPrintDebug('No response for print command after 8s.');
+        }
+      });
       setState(() => _status = 'Print requested: ${file.split('/').last}');
     } catch (e) {
       setState(() => _status = 'Start print failed: $e');
@@ -217,6 +230,7 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
     _ftp.dispose();
     _mqttReportSub?.cancel();
     _mqttCommandSub?.cancel();
+    _pendingPrintTimer?.cancel();
     super.dispose();
   }
 

@@ -26,6 +26,7 @@ class _SettingsPageState extends State<SettingsPage> {
       TextEditingController(); // <-- Added
   bool _autoConnect = false;
   bool _mqttControlsEnabled = false;
+  bool _lightControlsEnabled = false;
 
   PrinterUrlType selectedFormat = PrinterUrlType.bambuX1C;
 
@@ -46,6 +47,7 @@ class _SettingsPageState extends State<SettingsPage> {
     selectedFormat = settings.selectedFormat;
     _autoConnect = settings.autoConnect;
     _mqttControlsEnabled = settings.mqttControlsEnabled;
+    _lightControlsEnabled = settings.lightControlsEnabled;
     setState(() {});
   }
 
@@ -58,6 +60,7 @@ class _SettingsPageState extends State<SettingsPage> {
       customUrl: customUrlController.text,
       autoConnect: _autoConnect,
       mqttControlsEnabled: _mqttControlsEnabled,
+      lightControlsEnabled: _lightControlsEnabled,
     );
     await SettingsManager.saveSettings(settings);
   }
@@ -77,6 +80,9 @@ class _SettingsPageState extends State<SettingsPage> {
       'autoConnect': (m['autoConnect'] ?? m['rtsp_auto_connect'] ?? false),
       'mqttControlsEnabled': (m['mqttControlsEnabled'] ??
           m['rtsp_mqtt_controls_enabled'] ??
+          false),
+      'lightControlsEnabled': (m['lightControlsEnabled'] ??
+          m['rtsp_light_controls_enabled'] ??
           false),
     };
   }
@@ -151,6 +157,7 @@ class _SettingsPageState extends State<SettingsPage> {
         customUrl: customUrlController.text,
         autoConnect: _autoConnect,
         mqttControlsEnabled: _mqttControlsEnabled,
+        lightControlsEnabled: _lightControlsEnabled,
       );
 
       final jsonString = const JsonEncoder.withIndent(

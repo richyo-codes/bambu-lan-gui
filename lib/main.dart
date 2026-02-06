@@ -165,6 +165,7 @@ class _StreamPageState extends State<StreamPage> {
   bool _mqttConnected = false;
   String _lightNode = 'chamber_light';
   bool _mqttControlsEnabled = false;
+  bool _lightControlsEnabled = false;
 
   // Stall detection & reconnect
   Timer? _stallTimer;
@@ -351,6 +352,7 @@ class _StreamPageState extends State<StreamPage> {
     if (!mounted) return;
     setState(() {
       _mqttControlsEnabled = settings.mqttControlsEnabled;
+      _lightControlsEnabled = settings.lightControlsEnabled;
     });
   }
 
@@ -658,6 +660,7 @@ class _StreamPageState extends State<StreamPage> {
         await player.open(Media(currentStreamUrl!));
         _reconnectAttempts = 0;
         _reconnecting = false;
+        _lastPosition = Duration.zero;
         _lastProgressAt = DateTime.now();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -778,13 +781,7 @@ class _StreamPageState extends State<StreamPage> {
                                       //controls: NoVideoControls,
                                     ),
                                   ),
-                                  Positioned(
-                                    top: 8,
-                                    left: 8,
-                                    child: _PrintOverlayStatus(
-                                      status: _lastPrintStatus,
-                                    ),
-                                  ),
+                                  // Print overlay hidden for now.
                                   Positioned.fill(
                                     child: IgnorePointer(
                                       ignoring: !_showVideoControls,
@@ -917,34 +914,36 @@ class _StreamPageState extends State<StreamPage> {
                         icon: const Icon(Icons.settings),
                         label: const Text('Settings'),
                       ),
-                      OutlinedButton.icon(
-                        onPressed: _toggleChamberLight,
-                        icon: Icon(
-                          _chamberLightOn == true
-                              ? Icons.lightbulb
-                              : Icons.lightbulb_outline,
+                      if (_lightControlsEnabled)
+                        OutlinedButton.icon(
+                          onPressed: _toggleChamberLight,
+                          icon: Icon(
+                            _chamberLightOn == true
+                                ? Icons.lightbulb
+                                : Icons.lightbulb_outline,
+                          ),
+                          label: Text(_lightStatusLabel()),
                         ),
-                        label: Text(_lightStatusLabel()),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text('Auto light while printing'),
-                      Switch(
-                        value: _autoLightWhilePrinting,
-                        onChanged: (value) {
-                          setState(() => _autoLightWhilePrinting = value);
-                          final ps = _lastPrintStatus;
-                          if (value && ps != null) {
-                            _handleAutoLight(ps, force: true);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
+                  if (_lightControlsEnabled)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('Auto light while printing'),
+                        Switch(
+                          value: _autoLightWhilePrinting,
+                          onChanged: (value) {
+                            setState(() => _autoLightWhilePrinting = value);
+                            final ps = _lastPrintStatus;
+                            if (value && ps != null) {
+                              _handleAutoLight(ps, force: true);
+                            }
+                          },
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),
@@ -1186,7 +1185,6 @@ class _MetricsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     String fmtTemp(double? t) => t == null ? '-' : '${t.toStringAsFixed(0)}°C';
-    String fmtPct(int? p) => p == null ? '-' : '$p%';
     String fmtRssi(String? s) => s == null || s.isEmpty ? '-' : s;
     String fmtLayer(int? l, int? t) =>
         (l == null && t == null) ? '-' : '${l ?? '?'} / ${t ?? '?'}';
@@ -1197,106 +1195,53 @@ class _MetricsPanel extends StatelessWidget {
       return '$mag%';
     }
 
-    final styleLabel = Theme.of(context).textTheme.labelMedium;
-    final styleValue = Theme.of(context).textTheme.bodyMedium;
-    final styleSection = Theme.of(context).textTheme.titleSmall;
+    final styleValue = Theme.of(context).textTheme.bodySmall;
 
-    Widget tile(String label, String value) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    Widget item(IconData icon, String value) => Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Text(label, style: styleLabel),
+        Icon(icon, size: 16),
+        const SizedBox(width: 4),
         Text(value, style: styleValue),
       ],
     );
 
-    Widget? section(String title, List<_MetricItem> items) {
-      final visible = items.where((item) => item.show).toList();
-      if (visible.isEmpty) return null;
-      return ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 180),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: styleSection),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 16,
-              runSpacing: 8,
-              children:
-                  visible.map((item) => tile(item.label, item.value)).toList(),
-            ),
-          ],
+    final items = <Widget>[
+      if (ps.nozzleTemp != null || ps.nozzleTarget != null)
+        item(
+          Icons.local_fire_department,
+          '${fmtTemp(ps.nozzleTemp)} / ${fmtTemp(ps.nozzleTarget)}',
         ),
-      );
+      if (ps.bedTemp != null || ps.bedTarget != null)
+        item(
+          Icons.grid_on,
+          '${fmtTemp(ps.bedTemp)} / ${fmtTemp(ps.bedTarget)}',
+        ),
+      if (ps.chamberTemp != null)
+        item(Icons.crop_square, fmtTemp(ps.chamberTemp)),
+      if (ps.speedLevel != null || ps.speedMag != null)
+        item(Icons.speed, fmtSpeed(ps.speedLevel, ps.speedMag)),
+      if (ps.wifiSignal != null && ps.wifiSignal!.isNotEmpty)
+        item(Icons.wifi, fmtRssi(ps.wifiSignal)),
+      if (ps.layer != null || ps.totalLayers != null)
+        item(Icons.layers, fmtLayer(ps.layer, ps.totalLayers)),
+      if (ps.percent != null)
+        item(Icons.percent, '${ps.percent}%'),
+      if (ps.remainingMinutes != null)
+        item(Icons.timelapse, '${ps.remainingMinutes}m'),
+    ];
+
+    if (items.isEmpty) {
+      return const SizedBox.shrink();
     }
-
-    final statusItems = [
-      _MetricItem('State', ps.gcodeState, show: ps.gcodeState.isNotEmpty),
-      _MetricItem('Progress', fmtPct(ps.percent), show: ps.percent != null),
-      _MetricItem(
-        'Time Left',
-        ps.remainingMinutes != null ? '${ps.remainingMinutes} min' : '-',
-        show: ps.remainingMinutes != null,
-      ),
-      _MetricItem(
-        'Layer',
-        fmtLayer(ps.layer, ps.totalLayers),
-        show: ps.layer != null || ps.totalLayers != null,
-      ),
-    ];
-
-    final tempItems = [
-      _MetricItem(
-        'Nozzle',
-        '${fmtTemp(ps.nozzleTemp)} / ${fmtTemp(ps.nozzleTarget)}',
-        show: ps.nozzleTemp != null || ps.nozzleTarget != null,
-      ),
-      _MetricItem(
-        'Bed',
-        '${fmtTemp(ps.bedTemp)} / ${fmtTemp(ps.bedTarget)}',
-        show: ps.bedTemp != null || ps.bedTarget != null,
-      ),
-      _MetricItem(
-        'Chamber',
-        fmtTemp(ps.chamberTemp),
-        show: ps.chamberTemp != null,
-      ),
-    ];
-
-    final motionItems = [
-      _MetricItem(
-        'Speed',
-        fmtSpeed(ps.speedLevel, ps.speedMag),
-        show: ps.speedLevel != null || ps.speedMag != null,
-      ),
-      _MetricItem(
-        'Wi-Fi',
-        fmtRssi(ps.wifiSignal),
-        show: ps.wifiSignal != null && ps.wifiSignal!.isNotEmpty,
-      ),
-    ];
-
-    final jobItems = [
-      if (ps.gcodeFile != null && ps.gcodeFile!.isNotEmpty)
-        _MetricItem('File', ps.gcodeFile!.split('/').last),
-      if (ps.subtaskName != null && ps.subtaskName!.isNotEmpty)
-        _MetricItem('Job', ps.subtaskName!),
-    ];
-
-    final sections = [
-      section('Status', statusItems),
-      section('Temps', tempItems),
-      section('Motion', motionItems),
-      section('Job', jobItems),
-    ].whereType<Widget>().toList();
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         child: Wrap(
-          spacing: 20,
-          runSpacing: 12,
-          children: sections,
+          spacing: 12,
+          runSpacing: 6,
+          children: items,
         ),
       ),
     );
@@ -1307,8 +1252,14 @@ class _MetricItem {
   final String label;
   final String value;
   final bool show;
+  final IconData? icon;
 
-  const _MetricItem(this.label, this.value, {this.show = true});
+  const _MetricItem(
+    this.label,
+    this.value, {
+    this.show = true,
+    this.icon,
+  });
 }
 
 class _PrintOverlayStatus extends StatelessWidget {
