@@ -1,0 +1,102 @@
+stages:
+  - build
+
+variables:
+  # Ensure we explicitly pull LFS files (prevents pointer files in build).
+  GIT_LFS_SKIP_SMUDGE: "1"
+  PUB_CACHE: "$CI_PROJECT_DIR/.pub-cache"
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+
+.default_flutter_linux:
+  image: ghcr.io/cirruslabs/flutter:stable
+  before_script:
+    - git lfs install
+    - git lfs pull
+    - flutter --version
+    - flutter pub get
+    - export SEMVER=$(git describe --always --tags --dirty)
+  cache:
+    key: "$CI_JOB_NAME"
+    paths:
+      - .pub-cache/
+      - .gradle/
+
+android:
+  stage: build
+  extends: .default_flutter_linux
+  script:
+    - flutter build apk --debug
+    - mkdir -p artifacts/android
+    - cp build/app/outputs/flutter-apk/app-debug.apk "artifacts/android/app-debug-$SEMVER.apk"
+    - cp LICENSE artifacts/android/
+    - flutter build apk --release
+    - cp build/app/outputs/flutter-apk/app-release.apk "artifacts/android/app-release-$SEMVER.apk"
+    - cp LICENSE artifacts/android/
+  artifacts:
+    name: "android-apk-$CI_COMMIT_REF_SLUG"
+    paths:
+      - artifacts/android/**
+    expire_in: 7 days
+
+linux:
+  stage: build
+  extends: .default_flutter_linux
+  script:
+    - apt-get update
+    - apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmimalloc-dev libmimalloc2.0 libpulse-dev libssl-dev curl git unzip xz-utils zip libglu1-mesa pkg-config libstdc++-12-dev libasound2-dev mpv libmpv-dev software-properties-common
+    - apt-get install -y mpv squashfs-tools patchelf desktop-file-utils zsync
+    - flutter config --enable-linux-desktop
+    - flutter build linux --release
+    - cp LICENSE build/linux/x64/release/bundle/
+  artifacts:
+    name: "linux-x64-bundle-$CI_COMMIT_REF_SLUG"
+    paths:
+      - build/linux/x64/release/bundle/**
+    expire_in: 7 days
+
+# Optional AppImage build (enable by setting CI variable BUILD_APPIMAGE=true).
+linux_appimage:
+  stage: build
+  extends: .default_flutter_linux
+  rules:
+    - if: '$BUILD_APPIMAGE == "true"'
+  script:
+    - apt-get update
+    - apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmimalloc-dev libmimalloc2.0 libpulse-dev libssl-dev curl git unzip xz-utils zip libglu1-mesa pkg-config libstdc++-12-dev libasound2-dev mpv libmpv-dev software-properties-common
+    - apt-get install -y mpv squashfs-tools patchelf desktop-file-utils zsync
+    - python3 -m pip install --upgrade --user pip
+    - python3 -m pip install --user appimage-builder
+    - export PATH="$HOME/.local/bin:$PATH"
+    - flutter config --enable-linux-desktop
+    - flutter build linux --release
+    - appimage-builder --recipe appimage-builder.yml --skip-test
+  artifacts:
+    name: "linux-appimage-$CI_COMMIT_REF_SLUG"
+    paths:
+      - ./*.AppImage
+      - AppImage*.zsync
+    expire_in: 7 days
+    when: on_success
+
+# Windows build requires a Windows runner with Flutter & dependencies installed.
+windows:
+  stage: build
+  tags:
+    - windows
+  before_script:
+    - git lfs install
+    - git lfs pull
+  script:
+    - flutter --version
+    - flutter config --enable-windows-desktop
+    - flutter pub get
+    - flutter build windows --release
+    - Copy-Item -Path LICENSE -Destination build\windows\x64\runner\Release\LICENSE
+    - flutter pub get
+    - dart run msix:create
+  artifacts:
+    name: "windows-x64-release-$CI_COMMIT_REF_SLUG"
+    paths:
+      - build/windows/x64/runner/Release/**
+      - '**/*.msix'
+    expire_in: 7 days
