@@ -14,11 +14,10 @@
   </description>
   <launchable type="desktop-id">com.example.RndBambuRtspStream.desktop</launchable>
   <provides>
-    <binary>rnd_bambu_rtsp_stream</binary>
+    <binary>printer_lan</binary>
   </provides>
   <releases>
     <release version="0.1.0" date="2025-01-01"/>
   </releases>
   <content_rating type="oars-1.1"/>
 </component>
-
