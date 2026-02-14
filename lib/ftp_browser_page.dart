@@ -128,6 +128,18 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
     return null;
   }
 
+  int? _trayIndexFromFilament(FilamentOption? filament) {
+    if (filament == null) return null;
+    if (filament.id == 'external') return null;
+    if (!filament.id.startsWith('ams:')) return null;
+    final parts = filament.id.split(':');
+    if (parts.length != 3) return null;
+    final amsId = int.tryParse(parts[1]);
+    final trayId = int.tryParse(parts[2]);
+    if (amsId == null || trayId == null) return null;
+    return (amsId * 4) + trayId;
+  }
+
   Future<void> _refresh() async {
     setState(() => _loading = true);
     try {
@@ -196,18 +208,27 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
         mqtt.requestPushAll().catchError((_) {});
       }
       final isGcode = file.endsWith('.gcode');
-      if (!isGcode) {
-        _logPrintDebug('Note: 3MF via FTP uses start; may not be supported.');
-      }
-      final cmd = isGcode ? 'gcode_file' : 'start';
-      final filament = _selectedFilament?.label;
+      final cmd = isGcode ? 'gcode_file' : 'project_file';
+      final selectedFilament = _resolveSelectedFilament();
+      final filament = selectedFilament?.label;
       _logPrintDebug(
         'PRINT request: $cmd file=$file'
         '${filament != null ? ' | filament=$filament' : ''}',
       );
-      final seq = isGcode
-          ? await _mqtt!.printGcodeFile(file)
-          : await _mqtt!.startPrintFromSd(file);
+      late final String seq;
+      if (isGcode) {
+        seq = await _mqtt!.printGcodeFile(file);
+      } else {
+        final trayIndex = _trayIndexFromFilament(selectedFilament);
+        final useAms = selectedFilament?.id != 'external';
+        final mapping = trayIndex == null ? <int>[] : <int>[trayIndex];
+        seq = await _mqtt!.printProjectFile(
+          projectPath: file,
+          plateIndex: 1,
+          amsMapping: mapping,
+          useAms: useAms,
+        );
+      }
       _pendingPrintSeq = seq;
       _pendingPrintCommand = cmd;
       _pendingPrintTimer?.cancel();
@@ -327,7 +348,7 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
                     Expanded(
                       child: DropdownButtonFormField<FilamentOption>(
                         isExpanded: true,
-                        value: _resolveSelectedFilament(),
+                        initialValue: _resolveSelectedFilament(),
                         decoration: const InputDecoration(
                           hintText: 'Select filament',
                         ),
