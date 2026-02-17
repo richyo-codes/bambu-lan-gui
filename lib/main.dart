@@ -145,13 +145,12 @@ class StreamPage extends StatefulWidget {
 }
 
 bool isAccelSupported({TargetPlatform? platformOverride}) {
-
   return true;
 }
 
 class _StreamPageState extends State<StreamPage> {
   late final Player player;
-  late final VideoController controller;
+  late VideoController controller;
   String? currentStreamUrl;
   bool isStreaming = false;
   //final screenshotController = ScreenshotController();
@@ -166,6 +165,7 @@ class _StreamPageState extends State<StreamPage> {
   String _lightNode = 'chamber_light';
   bool _mqttControlsEnabled = false;
   bool _lightControlsEnabled = false;
+  bool _hardwareAccelerationEnabled = true;
 
   // Stall detection & reconnect
   Timer? _stallTimer;
@@ -257,9 +257,7 @@ class _StreamPageState extends State<StreamPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Screenshot failed: $e'),
             behavior: SnackBarBehavior.floating,
@@ -288,9 +286,9 @@ class _StreamPageState extends State<StreamPage> {
       }
     } catch (e) {
       if (showErrors && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Light command failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Light command failed: $e')));
       }
     }
   }
@@ -335,24 +333,44 @@ class _StreamPageState extends State<StreamPage> {
       logLevel: MPVLogLevel.debug,
     );
 
-    VideoControllerConfiguration vConfig = VideoControllerConfiguration(
-      enableHardwareAcceleration: isAccelSupported(),
-      hwdec: "auto",
-    );
-
     player = Player(configuration: config);
-    controller = VideoController(player, configuration: vConfig);
+    _rebuildVideoController();
     _setupPlayerListeners();
     _loadUiSettings();
     _attemptAutoConnect();
   }
 
+  void _rebuildVideoController() {
+    final enabled = _hardwareAccelerationEnabled && isAccelSupported();
+    controller = VideoController(
+      player,
+      configuration: VideoControllerConfiguration(
+        enableHardwareAcceleration: enabled,
+        hwdec: enabled ? 'auto' : 'no',
+      ),
+    );
+  }
+
   Future<void> _loadUiSettings() async {
     final settings = await SettingsManager.loadSettings();
+    final prevHw = _hardwareAccelerationEnabled;
+    final nextHw = settings.hardwareAccelerationEnabled;
     if (!mounted) return;
+    if (prevHw != nextHw) {
+      _hardwareAccelerationEnabled = nextHw;
+      _rebuildVideoController();
+      if (isStreaming && currentStreamUrl != null) {
+        try {
+          await _openMediaAndEnsurePlaying(currentStreamUrl!);
+        } catch (_) {
+          // Keep current stream state; existing error handling will surface issues.
+        }
+      }
+    }
     setState(() {
       _mqttControlsEnabled = settings.mqttControlsEnabled;
       _lightControlsEnabled = settings.lightControlsEnabled;
+      _hardwareAccelerationEnabled = nextHw;
     });
   }
 
@@ -393,8 +411,7 @@ class _StreamPageState extends State<StreamPage> {
 
     // Start video stream first (independent of MQTT)
     try {
-      final media = Media(url);
-      await player.open(media);
+      await _openMediaAndEnsurePlaying(url);
       _startStallMonitor();
     } catch (e) {
       if (mounted) {
@@ -437,8 +454,10 @@ class _StreamPageState extends State<StreamPage> {
             if (detectedNode != null) {
               _lightNode = detectedNode;
             }
-            final lightState =
-                _extractLightStateForNode(event.json, _lightNode);
+            final lightState = _extractLightStateForNode(
+              event.json,
+              _lightNode,
+            );
             setState(() {
               if (event.printStatus != null) {
                 final merged = _mergePrintStatus(
@@ -657,7 +676,7 @@ class _StreamPageState extends State<StreamPage> {
         return;
       }
       try {
-        await player.open(Media(currentStreamUrl!));
+        await _openMediaAndEnsurePlaying(currentStreamUrl!);
         _reconnectAttempts = 0;
         _reconnecting = false;
         _lastPosition = Duration.zero;
@@ -675,6 +694,19 @@ class _StreamPageState extends State<StreamPage> {
             context,
           ).showSnackBar(SnackBar(content: Text('Reconnect failed: $e')));
         }
+      }
+    });
+  }
+
+  Future<void> _openMediaAndEnsurePlaying(String url) async {
+    await player.open(Media(url), play: true);
+    await player.play();
+    // GTK4/Linux can occasionally come up paused after open.
+    Future<void>.delayed(const Duration(milliseconds: 250), () async {
+      if (!mounted || !isStreaming || currentStreamUrl == null) return;
+      if (currentStreamUrl != url) return;
+      if (!player.state.playing) {
+        await player.play();
       }
     });
   }
@@ -787,8 +819,9 @@ class _StreamPageState extends State<StreamPage> {
                                       ignoring: !_showVideoControls,
                                       child: AnimatedOpacity(
                                         opacity: _showVideoControls ? 1 : 0,
-                                        duration:
-                                            const Duration(milliseconds: 150),
+                                        duration: const Duration(
+                                          milliseconds: 150,
+                                        ),
                                         child: Container(
                                           color: Colors.black.withOpacity(0.2),
                                           child: Center(
@@ -1024,7 +1057,10 @@ BambuPrintStatus _mergePrintStatus(
     nozzleTarget: pickDouble(incoming.nozzleTarget, previous.nozzleTarget),
     chamberTemp: pickDouble(incoming.chamberTemp, previous.chamberTemp),
     nozzleType: pickString(incoming.nozzleType, previous.nozzleType),
-    nozzleDiameter: pickString(incoming.nozzleDiameter, previous.nozzleDiameter),
+    nozzleDiameter: pickString(
+      incoming.nozzleDiameter,
+      previous.nozzleDiameter,
+    ),
     speedLevel: pickInt(incoming.speedLevel, previous.speedLevel),
     speedMag: pickInt(incoming.speedMag, previous.speedMag),
     subtaskName: pickString(incoming.subtaskName, previous.subtaskName),
@@ -1060,10 +1096,7 @@ Map<String, dynamic> _stringKeyMap(Map map) {
 List<Map<String, dynamic>> _extractLightsReport(Map<String, dynamic> map) {
   final lightsReport = map['lights_report'];
   if (lightsReport is List) {
-    return lightsReport
-        .whereType<Map>()
-        .map((e) => _stringKeyMap(e))
-        .toList();
+    return lightsReport.whereType<Map>().map((e) => _stringKeyMap(e)).toList();
   }
   return const [];
 }
@@ -1095,10 +1128,7 @@ String? _detectLightNode(Map<String, dynamic> json) {
   return null;
 }
 
-bool? _extractLightStateForNode(
-  Map<String, dynamic> json,
-  String node,
-) {
+bool? _extractLightStateForNode(Map<String, dynamic> json, String node) {
   final candidates = <Map<String, dynamic>>[];
   final system = json['system'];
   if (system is Map) {
@@ -1225,8 +1255,7 @@ class _MetricsPanel extends StatelessWidget {
         item(Icons.wifi, fmtRssi(ps.wifiSignal)),
       if (ps.layer != null || ps.totalLayers != null)
         item(Icons.layers, fmtLayer(ps.layer, ps.totalLayers)),
-      if (ps.percent != null)
-        item(Icons.percent, '${ps.percent}%'),
+      if (ps.percent != null) item(Icons.percent, '${ps.percent}%'),
       if (ps.remainingMinutes != null)
         item(Icons.timelapse, '${ps.remainingMinutes}m'),
     ];
@@ -1238,11 +1267,7 @@ class _MetricsPanel extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Wrap(
-          spacing: 12,
-          runSpacing: 6,
-          children: items,
-        ),
+        child: Wrap(spacing: 12, runSpacing: 6, children: items),
       ),
     );
   }
@@ -1254,12 +1279,7 @@ class _MetricItem {
   final bool show;
   final IconData? icon;
 
-  const _MetricItem(
-    this.label,
-    this.value, {
-    this.show = true,
-    this.icon,
-  });
+  const _MetricItem(this.label, this.value, {this.show = true, this.icon});
 }
 
 class _PrintOverlayStatus extends StatelessWidget {
@@ -1312,10 +1332,9 @@ class _PrintOverlayStatus extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         child: Text(
           parts.join(' • '),
-          style: Theme.of(context)
-              .textTheme
-              .labelMedium
-              ?.copyWith(color: Colors.white, fontSize: 13),
+          style: Theme.of(
+            context,
+          ).textTheme.labelMedium?.copyWith(color: Colors.white, fontSize: 13),
         ),
       ),
     );

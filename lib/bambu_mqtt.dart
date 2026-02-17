@@ -207,21 +207,31 @@ class BambuMqtt {
   }
 
   void _maybeInferSerial(String topic, Map<String, dynamic> j) {
+    final m = RegExp(r'^device/([^/]+)/report').firstMatch(topic);
+    if (m != null) {
+      final topicSerial = _normalizeSerial(m.group(1));
+      if (topicSerial != null &&
+          topicSerial.isNotEmpty &&
+          topicSerial != _activeSerial) {
+        stderr.writeln(
+          'MQTT serial inferred from report topic: '
+          '${_activeSerial ?? '(unset)'} -> $topicSerial',
+        );
+        _activeSerial = topicSerial;
+      }
+      return;
+    }
+
     if (_activeSerial != null) {
       return;
     }
 
-    final m = RegExp(r'^device/([^/]+)/report').firstMatch(topic);
-    if (m != null) {
-      _activeSerial = _normalizeSerial(m.group(1));
-    } else {
-      // try payload fields often containing serial/dev id (best-effort)
-      for (final key in ['sn', 'serial', 'dev_id', 'usn']) {
-        final v = j[key];
-        if (v is String && v.isNotEmpty) {
-          _activeSerial = _normalizeSerial(v);
-          break;
-        }
+    // Try payload fields often containing serial/dev id (best-effort).
+    for (final key in ['sn', 'serial', 'dev_id', 'usn']) {
+      final v = j[key];
+      if (v is String && v.isNotEmpty) {
+        _activeSerial = _normalizeSerial(v);
+        break;
       }
     }
   }
@@ -236,7 +246,8 @@ class BambuMqtt {
     Map<String, dynamic> payload, {
     MqttQos qos = MqttQos.atMostOnce,
   }) async {
-    final sn = _normalizeSerial(_activeSerial) ?? _normalizeSerial(config.serial);
+    final sn =
+        _normalizeSerial(_activeSerial) ?? _normalizeSerial(config.serial);
     if (sn == null) {
       throw StateError(
         'Printer serial is unknown; provide BambuLanConfig.serial or wait for first report.',
@@ -359,11 +370,27 @@ class BambuMqtt {
     return parts.isEmpty ? trimmed : parts.last;
   }
 
-  String _normalizeSdPath(String path) {
+  String _normalizePrinterPath(String path) {
     final trimmed = path.trim();
-    if (trimmed.startsWith('/sdcard/')) return trimmed;
-    final fileName = _fileNameFromPath(trimmed);
-    return '/sdcard/$fileName';
+    if (trimmed.isEmpty) return '/';
+    if (trimmed.startsWith('/')) return trimmed;
+    return '/$trimmed';
+  }
+
+  String _toSdcardPath(String path) {
+    final p = _normalizePrinterPath(path);
+    if (p.startsWith('/sdcard/')) return p;
+    if (p == '/sdcard') return '/sdcard';
+    if (p.startsWith('/mnt/sdcard/')) {
+      return '/sdcard/${p.substring('/mnt/sdcard/'.length)}';
+    }
+    if (p == '/mnt/sdcard') return '/sdcard';
+    if (p == '/') return '/sdcard';
+    return '/sdcard$p';
+  }
+
+  String _projectUrlFromPath(String path) {
+    return 'file://${_toSdcardPath(path)}';
   }
 
   /// Print a 3MF project file already on printer SD using `project_file`.
@@ -374,11 +401,13 @@ class BambuMqtt {
     bool useAms = true,
   }) async {
     final seq = (_seq++).toString();
-    final sdPath = _normalizeSdPath(projectPath);
-    final fileName = _fileNameFromPath(sdPath);
-    final subtaskName = fileName.toLowerCase().endsWith('.3mf')
-        ? fileName.substring(0, fileName.length - 4)
-        : fileName;
+    final printerPath = _toSdcardPath(projectPath);
+    final projectUrl = _projectUrlFromPath(projectPath);
+    final fileName = _fileNameFromPath(printerPath);
+    final subtaskName = fileName.replaceFirst(
+      RegExp(r'(\.gcode)?\.3mf$', caseSensitive: false),
+      '',
+    );
     final payload = {
       'print': {
         'sequence_id': seq,
@@ -390,7 +419,7 @@ class BambuMqtt {
         'subtask_id': '0',
         'subtask_name': subtaskName,
         'file': '',
-        'url': 'file://$sdPath',
+        'url': projectUrl,
         'md5': '',
         'timelapse': true,
         'bed_type': 'auto',
@@ -409,12 +438,12 @@ class BambuMqtt {
   /// Print a G-code file already on the printer.
   Future<String> printGcodeFile(String gcodePath) async {
     final seq = (_seq++).toString();
-    final sdPath = _normalizeSdPath(gcodePath);
+    final printerPath = _toSdcardPath(gcodePath);
     final payload = {
       'print': {
         'sequence_id': seq,
         'command': 'gcode_file',
-        'param': sdPath,
+        'param': printerPath,
       },
     };
     await publishRequest(payload, qos: MqttQos.atMostOnce);

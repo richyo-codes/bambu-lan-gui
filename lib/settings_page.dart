@@ -27,6 +27,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _autoConnect = false;
   bool _mqttControlsEnabled = false;
   bool _lightControlsEnabled = false;
+  bool _hardwareAccelerationEnabled = true;
 
   PrinterUrlType selectedFormat = PrinterUrlType.bambuX1C;
 
@@ -48,6 +49,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _autoConnect = settings.autoConnect;
     _mqttControlsEnabled = settings.mqttControlsEnabled;
     _lightControlsEnabled = settings.lightControlsEnabled;
+    _hardwareAccelerationEnabled = settings.hardwareAccelerationEnabled;
     setState(() {});
   }
 
@@ -61,6 +63,7 @@ class _SettingsPageState extends State<SettingsPage> {
       autoConnect: _autoConnect,
       mqttControlsEnabled: _mqttControlsEnabled,
       lightControlsEnabled: _lightControlsEnabled,
+      hardwareAccelerationEnabled: _hardwareAccelerationEnabled,
     );
     await SettingsManager.saveSettings(settings);
   }
@@ -78,12 +81,18 @@ class _SettingsPageState extends State<SettingsPage> {
       'selectedFormat': pick('selectedFormat', 'rtsp_format', 'Bambu X1C'),
       'customUrl': pick('customUrl', 'rtsp_custom_url'),
       'autoConnect': (m['autoConnect'] ?? m['rtsp_auto_connect'] ?? false),
-      'mqttControlsEnabled': (m['mqttControlsEnabled'] ??
+      'mqttControlsEnabled':
+          (m['mqttControlsEnabled'] ??
           m['rtsp_mqtt_controls_enabled'] ??
           false),
-      'lightControlsEnabled': (m['lightControlsEnabled'] ??
+      'lightControlsEnabled':
+          (m['lightControlsEnabled'] ??
           m['rtsp_light_controls_enabled'] ??
           false),
+      'hardwareAccelerationEnabled':
+          (m['hardwareAccelerationEnabled'] ??
+          m['rtsp_hardware_acceleration_enabled'] ??
+          true),
     };
   }
 
@@ -123,6 +132,10 @@ class _SettingsPageState extends State<SettingsPage> {
         serialNumberController.text = imported.serialNumber;
         customUrlController.text = imported.customUrl;
         selectedFormat = imported.selectedFormat;
+        _autoConnect = imported.autoConnect;
+        _mqttControlsEnabled = imported.mqttControlsEnabled;
+        _lightControlsEnabled = imported.lightControlsEnabled;
+        _hardwareAccelerationEnabled = imported.hardwareAccelerationEnabled;
       });
 
       // Persist via manager (writes SharedPreferences & JSON file)
@@ -158,6 +171,7 @@ class _SettingsPageState extends State<SettingsPage> {
         autoConnect: _autoConnect,
         mqttControlsEnabled: _mqttControlsEnabled,
         lightControlsEnabled: _lightControlsEnabled,
+        hardwareAccelerationEnabled: _hardwareAccelerationEnabled,
       );
 
       final jsonString = const JsonEncoder.withIndent(
@@ -173,8 +187,7 @@ class _SettingsPageState extends State<SettingsPage> {
       );
 
       if (mounted) {
-        final text =
-            (savedPath.toString().trim().isNotEmpty)
+        final text = (savedPath.toString().trim().isNotEmpty)
             ? 'Settings exported to: $savedPath'
             : 'Settings exported to JSON.';
         ScaffoldMessenger.of(
@@ -353,6 +366,16 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 value: _mqttControlsEnabled,
                 onChanged: (v) => setState(() => _mqttControlsEnabled = v),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Enable hardware video acceleration'),
+                subtitle: const Text(
+                  'Disable to force software decoding/rendering (useful for GTK4 black-screen debugging).',
+                ),
+                value: _hardwareAccelerationEnabled,
+                onChanged: (v) =>
+                    setState(() => _hardwareAccelerationEnabled = v),
               ),
               const SizedBox(height: 20),
 
