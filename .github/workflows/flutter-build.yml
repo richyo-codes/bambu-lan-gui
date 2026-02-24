@@ -15,6 +15,9 @@ jobs:
   android:
     name: Android APK
     runs-on: [ubuntu-latest]
+    env:
+      ANDROID_HOME: ${{ github.workspace }}/.android-sdk
+      ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
     concurrency:
       group: build
     steps:
@@ -33,10 +36,37 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
+      - name: Install Android SDK command-line tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y wget unzip
+
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          wget -qO /tmp/android-cmdline-tools.zip \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q /tmp/android-cmdline-tools.zip -d /tmp/android-cmdline-tools
+          rm -rf "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          mv /tmp/android-cmdline-tools/cmdline-tools "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses > /dev/null
+          "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+
+      - name: Configure Flutter Android SDK path
+        run: flutter config --android-sdk "$ANDROID_SDK_ROOT"
 
       - name: Flutter pub get
         run: flutter pub get
@@ -83,8 +113,22 @@ jobs:
       - name: Install Linux desktop dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmimalloc-dev libmimalloc2.0 libpulse-dev libssl-dev curl git unzip xz-utils zip libglu1-mesa pkg-config libstdc++-12-dev libasound2-dev mpv libmpv-dev software-properties-common
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmimalloc-dev libmimalloc2.0 libpulse-dev libssl-dev curl git unzip xz-utils zip libglu1-mesa pkg-config libstdc++-12-dev libasound2-dev mpv libmpv-dev software-properties-common lld llvm
           sudo apt-get install -y mpv squashfs-tools patchelf desktop-file-utils zsync
+
+          # Some Flutter/Dart toolchains look for linker binaries under llvm-18 path.
+          # Provide compatibility symlinks when runner images use a different layout.
+          if [ ! -x /usr/lib/llvm-18/bin/ld.lld ] && command -v ld.lld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld.lld)" /usr/lib/llvm-18/bin/ld.lld
+          fi
+          if [ ! -x /usr/lib/llvm-18/bin/ld ] && command -v ld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld)" /usr/lib/llvm-18/bin/ld
+          fi
+          ls -la /usr/lib/llvm-18/bin || true
+          command -v ld.lld || true
+          command -v ld || true
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
