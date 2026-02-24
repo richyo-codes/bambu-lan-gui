@@ -94,7 +94,7 @@ jobs:
           cp LICENSE artifacts/android/
 
       - name: Upload Android artifact bundle
-        uses: actions/upload-artifact@v4
+        uses: richnetdesign/git-artifact-upload@v1
         with:
           name: android-apk-${{ env.SEMVER }}
           path: artifacts/android/**
@@ -152,7 +152,7 @@ jobs:
         run: cp LICENSE build/linux/x64/release/bundle/
 
       - name: Upload Linux artifact (bundle)
-        uses: actions/upload-artifact@v4
+        uses: richnetdesign/git-artifact-upload@v1
         with:
           name: linux-x64-bundle-${{ env.SEMVER }}
           path: build/linux/x64/release/bundle/**
@@ -227,7 +227,7 @@ jobs:
         run: Copy-Item -Path LICENSE -Destination build\windows\x64\runner\Release\LICENSE
 
       - name: Upload Windows artifact (Release folder)
-        uses: actions/upload-artifact@v4
+        uses: richnetdesign/git-artifact-upload@v1
         with:
           name: windows-x64-release-${{ env.SEMVER }}
           path: build/windows/x64/runner/Release/**
@@ -248,7 +248,7 @@ jobs:
           }
 
       - name: Upload Windows MSIX artifact
-        uses: actions/upload-artifact@v4
+        uses: richnetdesign/git-artifact-upload@v1
         with:
           name: windows-msix-${{ env.SEMVER }}
           path: '**/*.msix'
