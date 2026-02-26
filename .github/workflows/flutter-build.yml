@@ -180,10 +180,12 @@ jobs:
             libmimalloc-dev libmimalloc2.0 libpulse-dev libssl-dev curl git \
             unzip xz-utils zip libglu1-mesa libstdc++-12-dev libasound2-dev \
             mpv libmpv-dev software-properties-common lld llvm \
-            squashfs-tools patchelf desktop-file-utils zsync python3-pip
-          python3 -m pip install --upgrade --user pip
-          python3 -m pip install --user appimage-builder
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            squashfs-tools patchelf desktop-file-utils zsync python3-venv
+          python3 -m venv .venv-appimage
+          . .venv-appimage/bin/activate
+          python -m pip install --upgrade pip
+          pip install appimage-builder
+          echo "$GITHUB_WORKSPACE/.venv-appimage/bin" >> "$GITHUB_PATH"
 
           # Some Flutter/Dart toolchains look for linker binaries under llvm-18 path.
           if [ ! -x /usr/lib/llvm-18/bin/ld.lld ] && command -v ld.lld >/dev/null 2>&1; then
