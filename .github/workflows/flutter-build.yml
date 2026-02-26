@@ -158,31 +158,82 @@ jobs:
           path: build/linux/x64/release/bundle/**
           retention-days: 7
 
-      # AppImage packaging temporarily disabled while strategy is being reworked.
-                                                  
-      # - name: Version AppImage files
-      #   run: |
-      #     set -euo pipefail
-      #     shopt -s nullglob
-      #     # Rename AppImage
-      #     for f in ./*.AppImage; do
-      #       base=${f%.AppImage}
-      #       mv "$f" "${base}-$SEMVER.AppImage"
-      #     done
-      #     # Rename zsync if present
-      #     for f in AppImage*.zsync; do
-      #       base=${f%.zsync}
-      #       mv "$f" "${base}-$SEMVER.zsync"
-      #     done
+  linux_appimage:
+    name: Linux AppImage
+    runs-on: [ubuntu-latest]
+    concurrency:
+      group: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # - name: Upload AppImage artifact
-      #   uses: actions/upload-artifact@v4
-      #   with:                                                                                                                                                                                                 
-      #     name: Bambu-RTSP-Stream-AppImage-${{ env.SEMVER }}                                                                                                                                                  
-      #     path: |                                 
-      #       ./*.AppImage                                                                                                                                                                                      
-      #       AppImage*.zsync                                                                                                                                                                                   
-      #     if-no-files-found: error   
+      - name: Git describe
+        id: ghd
+        run: |
+          echo "tag=$(git describe --always --tags --dirty)" >> "$GITHUB_OUTPUT"
+
+      - name: Install AppImage build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
+            libmimalloc-dev libmimalloc2.0 libpulse-dev libssl-dev curl git \
+            unzip xz-utils zip libglu1-mesa libstdc++-12-dev libasound2-dev \
+            mpv libmpv-dev software-properties-common lld llvm \
+            squashfs-tools patchelf desktop-file-utils zsync python3-pip
+          python3 -m pip install --upgrade --user pip
+          python3 -m pip install --user appimage-builder
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+          # Some Flutter/Dart toolchains look for linker binaries under llvm-18 path.
+          if [ ! -x /usr/lib/llvm-18/bin/ld.lld ] && command -v ld.lld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld.lld)" /usr/lib/llvm-18/bin/ld.lld
+          fi
+          if [ ! -x /usr/lib/llvm-18/bin/ld ] && command -v ld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld)" /usr/lib/llvm-18/bin/ld
+          fi
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build Linux (release)
+        run: flutter build linux --release
+
+      - name: Build AppImage
+        run: appimage-builder --recipe appimage-builder.yml --skip-test
+
+      - name: Version AppImage files
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in ./*.AppImage; do
+            base=${f%.AppImage}
+            mv "$f" "${base}-$SEMVER.AppImage"
+          done
+          for f in AppImage*.zsync; do
+            base=${f%.zsync}
+            mv "$f" "${base}-$SEMVER.zsync"
+          done
+
+      - name: Upload AppImage artifact
+        uses: richnetdesign/git-artifact-upload@v1
+        with:
+          name: appimage-${{ env.SEMVER }}
+          path: |
+            ./*.AppImage
+            AppImage*.zsync
+          if-no-files-found: error
+          retention-days: 7
 
   windows:
     name: Windows x64
