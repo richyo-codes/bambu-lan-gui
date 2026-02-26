@@ -158,17 +158,7 @@ jobs:
           path: build/linux/x64/release/bundle/**
           retention-days: 7
 
-      - name: Build Linux release bundle                                                                                                                                                                      
-        run: flutter build linux --release                                                            
-                                                                                                      
-      - name: Install appimage-builder            
-        run: |                                    
-          python3 -m pip install --upgrade --user pip                                                                                                                                                         
-          python3 -m pip install --user appimage-builder                                                                                                                                                      
-          echo "$HOME/.local/bin" >> $GITHUB_PATH 
-                                                                                                                                                                                                              
-      - name: Build AppImage                                                                                                                                                                                  
-        run: appimage-builder --recipe appimage-builder.yml --skip-test
+      # AppImage packaging temporarily disabled while strategy is being reworked.
                                                   
       # - name: Version AppImage files
       #   run: |
