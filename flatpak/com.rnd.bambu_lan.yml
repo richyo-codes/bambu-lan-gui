@@ -1,11 +1,13 @@
 app-id: com.rnd.bambu_lan
 runtime: org.freedesktop.Platform
-runtime-version: '23.08'
+runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 command: printer_lan
-runtime-extensions:
-  - org.freedesktop.Platform.GL.default
-  - org.freedesktop.Platform.openh264
+add-extensions:
+  org.freedesktop.Platform.ffmpeg-full:
+    version: '24.08'
+    directory: lib/ffmpeg
+    add-ld-path: lib
 finish-args:
   - --share=network
   - --socket=wayland
@@ -13,6 +15,8 @@ finish-args:
   - --device=dri
   - --share=ipc
   - --socket=pulseaudio
+  - --filesystem=host-os:ro
+  - --env=LD_LIBRARY_PATH=/app/bin/lib:/app/lib:/run/host/usr/lib64:/run/host/lib64
 modules:
   - name: rnd-bambu-rtsp-stream
     buildsystem: simple
@@ -30,6 +34,8 @@ modules:
       - install -Dm755 bundle/printer_lan /app/bin/printer_lan
       - cp -r bundle/data /app/bin/
       - cp -r bundle/lib /app/bin/
+      # Ensure extension mount point exists for org.freedesktop.Platform.ffmpeg-full
+      - install -d /app/lib/ffmpeg
       # Install desktop & metadata
       - install -Dm644 flatpak/com.rnd.bambu_lan.desktop /app/share/applications/com.rnd.bambu_lan.desktop
       - install -Dm644 flatpak/com.rnd.bambu_lan.metainfo.xml /app/share/metainfo/com.rnd.bambu_lan.metainfo.xml
