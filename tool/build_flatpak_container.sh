@@ -31,6 +31,24 @@ IMAGE="ghcr.io/flathub-infra/flatpak-builder-lint:latest"
 
 mkdir -p "$ROOT_DIR/build"
 
+# Ensure Flutter release bundle exists and host libmpv is copied into it.
+HOST_BUNDLE_DIR="$ROOT_DIR/build/linux/x64/release/bundle"
+HOST_BUNDLE_LIB_DIR="$HOST_BUNDLE_DIR/lib"
+if [[ ! -f "$HOST_BUNDLE_DIR/printer_lan" ]]; then
+  echo "Missing $HOST_BUNDLE_DIR/printer_lan. Run: flutter build linux --release" >&2
+  exit 1
+fi
+HOST_LIBMPV_PATH="$(ldconfig -p | awk '/libmpv\\.so\\.2/{print $NF; exit}')"
+if [[ -z "${HOST_LIBMPV_PATH:-}" ]]; then
+  HOST_LIBMPV_PATH="$(find /usr/lib64 /lib64 /usr/lib /lib -maxdepth 3 -type f -name 'libmpv.so.2*' 2>/dev/null | head -n 1 || true)"
+fi
+if [[ -z "${HOST_LIBMPV_PATH:-}" || ! -f "$HOST_LIBMPV_PATH" ]]; then
+  echo "Host libmpv.so.2 not found. Install mpv-libs/libmpv first." >&2
+  exit 1
+fi
+mkdir -p "$HOST_BUNDLE_LIB_DIR"
+cp -Lf "$HOST_LIBMPV_PATH" "$HOST_BUNDLE_LIB_DIR/libmpv.so.2"
+
 # Use SELinux-safe mount label for Podman. Docker ignores ':Z'.
 MOUNT_SPEC="$ROOT_DIR:/src:Z"
 
@@ -53,6 +71,7 @@ MOUNT_SPEC="$ROOT_DIR:/src:Z"
     flatpak --system install -y --noninteractive --no-related flathub \
       org.freedesktop.Sdk/x86_64/24.08 \
       org.freedesktop.Platform/x86_64/24.08
+
     flatpak-builder --disable-rofiles-fuse --force-clean '$CONTAINER_BUILD_DIR' '$CONTAINER_MANIFEST'
     flatpak-builder --disable-rofiles-fuse --force-clean --repo='$CONTAINER_REPO_DIR' '$CONTAINER_BUILD_DIR' '$CONTAINER_MANIFEST'
     flatpak build-bundle '$CONTAINER_REPO_DIR' '$CONTAINER_BUNDLE_PATH' '$APP_ID'
