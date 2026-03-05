@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:rnd_bambu_rtsp_stream/main.dart';
+import 'package:bambu_lan/main.dart';
 
 void main() {
   test('hardware accel disabled on linux to avoid blue video', () {

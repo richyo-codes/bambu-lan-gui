@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
-import 'package:rnd_bambu_rtsp_stream/printer_url_formats.dart';
+import 'package:bambu_lan/printer_url_formats.dart';
 
 import 'settings_manager.dart';
 import 'window_drag_controller.dart';

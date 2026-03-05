@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:flutter/material.dart';
-import 'package:rnd_bambu_rtsp_stream/bambu_lan.dart';
-import 'package:rnd_bambu_rtsp_stream/bambu_mqtt.dart';
-import 'package:rnd_bambu_rtsp_stream/printer_url_formats.dart';
-import 'package:rnd_bambu_rtsp_stream/settings_manager.dart';
-import 'package:rnd_bambu_rtsp_stream/printer_stream_manager.dart';
+import 'package:bambu_lan/bambu_lan.dart';
+import 'package:bambu_lan/bambu_mqtt.dart';
+import 'package:bambu_lan/printer_url_formats.dart';
+import 'package:bambu_lan/settings_manager.dart';
+import 'package:bambu_lan/printer_stream_manager.dart';
 import 'settings_page.dart';
 import 'mqtt_control_page.dart';
 import 'ftp_browser_page.dart';
@@ -190,6 +190,7 @@ class _StreamPageState extends State<StreamPage> {
   bool _showVideoControls = false;
   bool _isPlaying = false;
   Timer? _controlsHideTimer;
+  Timer? _autoplayKickTimer;
 
   Future<Directory> _resolveScreenshotDir() async {
     try {
@@ -392,6 +393,7 @@ class _StreamPageState extends State<StreamPage> {
     _errorSub?.cancel();
     _playingSub?.cancel();
     _controlsHideTimer?.cancel();
+    _autoplayKickTimer?.cancel();
     player.dispose();
     mqttClient?.dispose();
     super.dispose();
@@ -701,11 +703,37 @@ class _StreamPageState extends State<StreamPage> {
   Future<void> _openMediaAndEnsurePlaying(String url) async {
     await player.open(Media(url), play: true);
     await player.play();
-    // GTK4/Linux can occasionally come up paused after open.
-    Future<void>.delayed(const Duration(milliseconds: 250), () async {
-      if (!mounted || !isStreaming || currentStreamUrl == null) return;
-      if (currentStreamUrl != url) return;
-      if (!player.state.playing) {
+    _startAutoplayKick(url);
+  }
+
+  void _startAutoplayKick(String url) {
+    _autoplayKickTimer?.cancel();
+    final startedAt = DateTime.now();
+    _autoplayKickTimer = Timer.periodic(const Duration(milliseconds: 350), (
+      timer,
+    ) async {
+      if (!mounted || !isStreaming || currentStreamUrl != url) {
+        timer.cancel();
+        return;
+      }
+      final state = player.state;
+      final elapsed = DateTime.now().difference(startedAt);
+
+      // Stop once playback is really moving.
+      if (state.playing && state.position > Duration.zero) {
+        timer.cancel();
+        return;
+      }
+
+      // Give up after a short window to avoid endless retries.
+      if (elapsed > const Duration(seconds: 8)) {
+        timer.cancel();
+        return;
+      }
+
+      // GTK4 can transiently report paused right after output rebind.
+      // Keep nudging play during startup until frames advance.
+      if (!state.playing && !state.buffering) {
         await player.play();
       }
     });

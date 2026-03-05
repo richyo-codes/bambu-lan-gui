@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:rnd_bambu_rtsp_stream/bambu_ftp.dart';
-import 'package:rnd_bambu_rtsp_stream/bambu_lan.dart';
-import 'package:rnd_bambu_rtsp_stream/bambu_mqtt.dart';
-import 'package:rnd_bambu_rtsp_stream/settings_manager.dart';
+import 'package:bambu_lan/bambu_ftp.dart';
+import 'package:bambu_lan/bambu_lan.dart';
+import 'package:bambu_lan/bambu_mqtt.dart';
+import 'package:bambu_lan/settings_manager.dart';
 import 'window_drag_controller.dart';
 
 class FtpBrowserPage extends StatefulWidget {

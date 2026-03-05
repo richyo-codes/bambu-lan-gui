@@ -22,7 +22,7 @@
 
 import 'dart:async';
 
-import 'package:rnd_bambu_rtsp_stream/bambu_mqtt.dart';
+import 'package:bambu_lan/bambu_mqtt.dart';
 
 // ============================
 // Configuration & Public Types
