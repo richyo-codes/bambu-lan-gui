@@ -2,10 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-MANIFEST="$ROOT_DIR/flatpak/com.example.RndBambuRtspStream.yml"
+MANIFEST="$ROOT_DIR/flatpak/com.rnd.bambu_lan.yml"
 BUILD_DIR="$ROOT_DIR/build/flatpak"
 REPO_DIR="$ROOT_DIR/build/flatpak-repo"
-BUNDLE_PATH="$ROOT_DIR/build/com.example.RndBambuRtspStream.flatpak"
+BUNDLE_PATH="$ROOT_DIR/build/com.rnd.bambu_lan.flatpak"
 
 if ! command -v flatpak-builder >/dev/null 2>&1; then
   if command -v dnf >/dev/null 2>&1; then
@@ -29,6 +29,6 @@ flatpak-builder --force-clean "$BUILD_DIR" "$MANIFEST"
 
 # Create a repo and bundle for easy install/share.
 flatpak-builder --force-clean --repo="$REPO_DIR" "$BUILD_DIR" "$MANIFEST"
-flatpak build-bundle "$REPO_DIR" "$BUNDLE_PATH" com.example.RndBambuRtspStream
+flatpak build-bundle "$REPO_DIR" "$BUNDLE_PATH" com.rnd.bambu_lan
 
 echo "Flatpak bundle created: $BUNDLE_PATH"

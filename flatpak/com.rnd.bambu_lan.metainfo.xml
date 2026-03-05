@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.example.RndBambuRtspStream</id>
+  <id>com.rnd.bambu_lan</id>
   <name>Bambu RTSP Stream</name>
   <summary>Generate RTSP/RTSPS URLs and view printer streams over LAN</summary>
   <metadata_license>CC0-1.0</metadata_license>
@@ -12,7 +12,7 @@
       expose printer services to the internet.
     </p>
   </description>
-  <launchable type="desktop-id">com.example.RndBambuRtspStream.desktop</launchable>
+  <launchable type="desktop-id">com.rnd.bambu_lan.desktop</launchable>
   <provides>
     <binary>printer_lan</binary>
   </provides>

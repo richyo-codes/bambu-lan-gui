@@ -2,7 +2,7 @@
 Name=Bambu RTSP Stream
 Comment=View RTSP/RTSPS streams from Bambu printers on your LAN
 Exec=printer_lan
-Icon=com.example.RndBambuRtspStream
+Icon=com.rnd.bambu_lan
 Terminal=false
 Type=Application
 Categories=Utility;Graphics;

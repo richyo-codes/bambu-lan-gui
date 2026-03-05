@@ -1,4 +1,4 @@
-app-id: com.example.RndBambuRtspStream
+app-id: com.rnd.bambu_lan
 runtime: org.freedesktop.Platform
 runtime-version: '23.08'
 sdk: org.freedesktop.Sdk
@@ -31,6 +31,6 @@ modules:
       - cp -r bundle/data /app/bin/
       - cp -r bundle/lib /app/bin/
       # Install desktop & metadata
-      - install -Dm644 flatpak/com.example.RndBambuRtspStream.desktop /app/share/applications/com.example.RndBambuRtspStream.desktop
-      - install -Dm644 flatpak/com.example.RndBambuRtspStream.metainfo.xml /app/share/metainfo/com.example.RndBambuRtspStream.metainfo.xml
-      - install -Dm644 flatpak/icons/com.example.RndBambuRtspStream.svg /app/share/icons/hicolor/scalable/apps/com.example.RndBambuRtspStream.svg
+      - install -Dm644 flatpak/com.rnd.bambu_lan.desktop /app/share/applications/com.rnd.bambu_lan.desktop
+      - install -Dm644 flatpak/com.rnd.bambu_lan.metainfo.xml /app/share/metainfo/com.rnd.bambu_lan.metainfo.xml
+      - install -Dm644 flatpak/icons/com.rnd.bambu_lan.svg /app/share/icons/hicolor/scalable/apps/com.rnd.bambu_lan.svg
