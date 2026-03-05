@@ -2,7 +2,7 @@ app-id: com.rnd.bambu_lan
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
-command: printer_lan
+command: run-printer-lan
 add-extensions:
   org.freedesktop.Platform.ffmpeg-full:
     version: '24.08'
@@ -16,7 +16,6 @@ finish-args:
   - --share=ipc
   - --socket=pulseaudio
   - --filesystem=host-os:ro
-  - --env=LD_LIBRARY_PATH=/app/bin/lib:/app/lib:/run/host/usr/lib64:/run/host/lib64
 modules:
   - name: rnd-bambu-rtsp-stream
     buildsystem: simple
@@ -34,6 +33,14 @@ modules:
       - install -Dm755 bundle/printer_lan /app/bin/printer_lan
       - cp -r bundle/data /app/bin/
       - cp -r bundle/lib /app/bin/
+      # Launcher: scope custom loader paths to app process only.
+      - |
+        cat > /app/bin/run-printer-lan <<'EOF'
+        #!/usr/bin/env sh
+        export LD_LIBRARY_PATH="/run/host/usr/lib64:/run/host/lib64:/run/host/usr/lib64/pulseaudio:/run/host/usr/lib64/pipewire-0.3/jack:/run/host/usr/lib64/samba:/app/bin/lib:/app/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        exec /app/bin/printer_lan "$@"
+        EOF
+      - chmod 755 /app/bin/run-printer-lan
       # Ensure extension mount point exists for org.freedesktop.Platform.ffmpeg-full
       - install -d /app/lib/ffmpeg
       # Install desktop & metadata
