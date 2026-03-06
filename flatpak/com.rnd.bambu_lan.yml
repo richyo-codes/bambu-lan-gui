@@ -71,6 +71,12 @@ modules:
       - |
         cat > /app/bin/run-printer-lan <<'EOF'
         #!/usr/bin/env sh
+        # Select GTK backend per session so Flatpak works on both Wayland & X11.
+        if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+          export GDK_BACKEND="wayland"
+        else
+          export GDK_BACKEND="x11"
+        fi
         export LD_LIBRARY_PATH="/app/lib:/app/bin/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
         exec /app/bin/printer_lan "$@"
         EOF
