@@ -4,6 +4,7 @@
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
+#include <glib.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -85,14 +86,21 @@ static void my_application_activate(GApplication* application) {
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
   // Use Flutter's header and make the window frameless.
-  gtk_window_set_title(window, "printer_lan");
+  gtk_window_set_title(window, "Bambu Printer Manager");
   gtk_window_set_decorated(window, FALSE);
+  gtk_window_set_titlebar(window, nullptr);
 
   gtk_window_set_default_size(window, 1280, 720);
 
-  auto isIconSuccess = gtk_window_set_icon_from_file(window, "assets/icons/renders/lan_shield.png", nullptr);
-  if (!isIconSuccess) {
-
+  g_autofree gchar* icon_path = g_build_filename(
+      g_get_current_dir(), "data", "flutter_assets", "assets", "icons",
+      "renders", "printer_home_shield.png", nullptr);
+  if (g_file_test(icon_path, G_FILE_TEST_EXISTS)) {
+    g_autoptr(GError) icon_error = nullptr;
+    if (!gtk_window_set_icon_from_file(window, icon_path, &icon_error) &&
+        icon_error != nullptr) {
+      g_warning("Failed to set window icon: %s", icon_error->message);
+    }
   }
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
