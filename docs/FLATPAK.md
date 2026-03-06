@@ -4,93 +4,55 @@
 
 - `com.rnd.bambu_lan`
 
-## Build a Flatpak bundle
+## Current packaging model
+
+The Flatpak manifest builds `mpv` (with `libmpv`) **inside Flatpak** as a module.
+
+This is based on the approach used by `flathub/io.mpv.Mpv` and avoids host ABI/glibc mismatch.
+
+Key points:
+
+- No host library fallback (`/run/host/...`) for app runtime.
+- No host `libmpv` copy.
+- Launcher uses only app/runtime library locations:
+  - `LD_LIBRARY_PATH=/app/lib:/app/bin/lib`
+
+## Build in container (recommended)
 
 ```bash
 cd /home/ry/code_flutter/rnd_bambu_rtsp
-./tool/build_flatpak.sh
+flutter build linux --release
+./tool/build_flatpak_container.sh
 ```
 
 This script:
 
-1. Runs `flutter build linux --release`
-2. Builds Flatpak from `flatpak/com.rnd.bambu_lan.yml`
-3. Writes bundle to `build/com.rnd.bambu_lan.flatpak`
+1. Uses Podman/Docker with `ghcr.io/flathub-infra/flatpak-builder-lint:latest`
+2. Installs Flatpak runtime + SDK `24.08`
+3. Builds modules from `flatpak/com.rnd.bambu_lan.yml`
+4. Writes bundle to `build/com.rnd.bambu_lan.flatpak`
 
-## Install & run locally
+## Install & run
 
 ```bash
 flatpak install --user --reinstall ./build/com.rnd.bambu_lan.flatpak
 flatpak run com.rnd.bambu_lan
 ```
 
-## Runtime media libraries
+## Troubleshooting
 
-`ffmpeg-full` does **not** provide `libmpv.so.2`; it provides FFmpeg codec libs.
-
-This project now vendors `libmpv.so.2` into the app bundle during `./tool/build_flatpak.sh`:
-
-- `libmpv.so.2` resolved via `ldconfig -p` (with fallback path scan)
-- copied to `build/linux/x64/release/bundle/lib/libmpv.so.2`
-
-So at runtime:
-
-- host runtime libs are searched first (`/run/host/usr/lib64:/run/host/lib64`)
-- app bundle libs are searched after (`/app/bin/lib:/app/lib`)
-- `libmpv.so.2` is available from app bundle
-- codec stack can leverage `org.freedesktop.Platform.ffmpeg-full`
-
-Current manifest also includes a host-library fallback for Fedora-like setups:
-
-- `--filesystem=host-os:ro`
-- `LD_LIBRARY_PATH` includes `/run/host/usr/lib64` and `/run/host/lib64`
-
-This improves local compatibility when host `mpv-libs` has extra deps not present in runtime.
-Tradeoff: less portable/reproducible than building against Flatpak SDK/runtime libraries only.
-
-## Why `libmpv.so.2` can still be missing
-
-The app relies on `libmpv` from the Flatpak runtime extension:
-
-- `org.freedesktop.Platform.ffmpeg-full//24.08`
-
-Flatpak always installs hard runtime dependencies (`runtime`, `sdk`), but extension behavior can vary for local bundle installs. In practice, local installs may need manual extension install.
-
-If you get:
-
-- `error while loading shared libraries: libmpv.so.2: cannot open shared object file`
-
-install extension explicitly:
+Check what the app sees:
 
 ```bash
-flatpak install --user flathub org.freedesktop.Platform.ffmpeg-full//24.08
+flatpak run --command=sh com.rnd.bambu_lan -c 'echo "$LD_LIBRARY_PATH"; ldd /app/bin/printer_lan | grep "not found" || true'
 ```
 
-Then run again:
+If module build fails, inspect builder output for the failing module (`mpv` or one of its deps), then adjust module config in:
 
-```bash
-flatpak run com.rnd.bambu_lan
-```
-
-If build script fails with missing host `libmpv.so.2`, install host package first:
-
-- Fedora: `sudo dnf install -y mpv-libs`
-
-## Debug commands
-
-Check runtime library path seen by app sandbox:
-
-```bash
-flatpak run --command=sh com.rnd.bambu_lan -c 'echo "$LD_LIBRARY_PATH"'
-```
-
-Find `libmpv` inside sandbox-visible extension paths:
-
-```bash
-flatpak run --command=sh com.rnd.bambu_lan -c 'find /usr/lib/extensions -name "libmpv.so*" 2>/dev/null'
-```
+- `flatpak/com.rnd.bambu_lan.yml`
 
 ## Key files
 
 - Manifest: `flatpak/com.rnd.bambu_lan.yml`
-- Build script: `tool/build_flatpak.sh`
+- Container build script: `tool/build_flatpak_container.sh`
+- Local host build script: `tool/build_flatpak.sh`

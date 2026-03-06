@@ -1,21 +1,15 @@
 version: 1
 
 AppDir:
-  path: AppDir
+  path: build/linux/x64/release/bundle
   app_info:
     id: com.ry.printer-lan
     name: Bambu RTSP Stream
     version: 1.0.0
-    exec: usr/bin/rnd_bambu_rtsp_stream
+    exec: printer_lan
   runtime:
     env:
-      LD_LIBRARY_PATH: "$APPDIR/usr/bin/lib:$APPDIR/usr/lib:$APPDIR/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
-
-  files:
-    include:
-      # Copy the Flutter Linux release bundle (binary + data) into usr/bin
-      - source: build/linux/x64/release/bundle/
-        destination: usr/bin/
+      LD_LIBRARY_PATH: "$APPDIR/lib:$APPDIR/usr/lib:$APPDIR/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
 
   apt:
     arch: amd64
