@@ -36,6 +36,23 @@ jobs:
           git lfs install --local
           git lfs pull
 
+      - name: Set SEMVER
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            semver="${GITHUB_REF_NAME#v}"
+          else
+            semver="$(git describe --always --tags --dirty 2>/dev/null || true)"
+            if [[ -z "$semver" ]]; then
+              semver="$(git rev-parse --short HEAD 2>/dev/null || true)"
+            fi
+            if [[ -z "$semver" ]]; then
+              semver="0.0.0-unknown"
+            fi
+          fi
+          echo "SEMVER=$semver" >> "$GITHUB_ENV"
+
       - name: Git describe
         id: ghd
         run: |
@@ -135,6 +152,23 @@ jobs:
           git lfs install --local
           git lfs pull
 
+      - name: Set SEMVER
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            semver="${GITHUB_REF_NAME#v}"
+          else
+            semver="$(git describe --always --tags --dirty 2>/dev/null || true)"
+            if [[ -z "$semver" ]]; then
+              semver="$(git rev-parse --short HEAD 2>/dev/null || true)"
+            fi
+            if [[ -z "$semver" ]]; then
+              semver="0.0.0-unknown"
+            fi
+          fi
+          echo "SEMVER=$semver" >> "$GITHUB_ENV"
+
       - name: Git describe
         id: ghd
         run: |
@@ -206,6 +240,23 @@ jobs:
           fi
           git lfs install --local
           git lfs pull
+
+      - name: Set SEMVER
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            semver="${GITHUB_REF_NAME#v}"
+          else
+            semver="$(git describe --always --tags --dirty 2>/dev/null || true)"
+            if [[ -z "$semver" ]]; then
+              semver="$(git rev-parse --short HEAD 2>/dev/null || true)"
+            fi
+            if [[ -z "$semver" ]]; then
+              semver="0.0.0-unknown"
+            fi
+          fi
+          echo "SEMVER=$semver" >> "$GITHUB_ENV"
 
       - name: Git describe
         id: ghd
@@ -299,6 +350,23 @@ jobs:
           fi
           git lfs install --local
           git lfs pull
+
+      - name: Set SEMVER
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            semver="${GITHUB_REF_NAME#v}"
+          else
+            semver="$(git describe --always --tags --dirty 2>/dev/null || true)"
+            if [[ -z "$semver" ]]; then
+              semver="$(git rev-parse --short HEAD 2>/dev/null || true)"
+            fi
+            if [[ -z "$semver" ]]; then
+              semver="0.0.0-unknown"
+            fi
+          fi
+          echo "SEMVER=$semver" >> "$GITHUB_ENV"
 
       - name: Git describe
         id: ghd
