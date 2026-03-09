@@ -58,8 +58,8 @@ MOUNT_SPEC="$ROOT_DIR:/src:Z"
     # Preinstall only required runtime/SDK and avoid related refs (e.g. openh264),
     # which can fail in restricted container bwrap environments.
     flatpak --system install -y --noninteractive --no-related flathub \
-      org.freedesktop.Sdk/x86_64/24.08 \
-      org.freedesktop.Platform/x86_64/24.08
+      org.freedesktop.Sdk/x86_64/25.08 \
+      org.freedesktop.Platform/x86_64/25.08
 
     flatpak-builder --disable-rofiles-fuse --force-clean '$CONTAINER_BUILD_DIR' '$CONTAINER_MANIFEST'
     flatpak-builder --disable-rofiles-fuse --force-clean --repo='$CONTAINER_REPO_DIR' '$CONTAINER_BUILD_DIR' '$CONTAINER_MANIFEST'
