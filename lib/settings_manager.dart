@@ -95,7 +95,8 @@ class AppSettings {
 class SettingsManager {
   static AppSettings? _cachedSettings;
 
-  static const _jsonFileName = 'rtsp_settings.json';
+  static const _jsonFileName = 'bambu_lan_settings.json';
+  static const _legacyJsonFileName = 'rtsp_settings.json';
 
   static Future<void> _saveToJsonFile(AppSettings settings) async {
     try {
@@ -110,10 +111,17 @@ class SettingsManager {
 
   static Future<AppSettings?> _loadFromJsonFile() async {
     try {
-      final jsonString = await readSettingsFile(_jsonFileName);
-      if (jsonString == null) return null;
+      var jsonString = await readSettingsFile(_jsonFileName);
+      if (jsonString == null) {
+        // Backward-compatible fallback for old app versions.
+        jsonString = await readSettingsFile(_legacyJsonFileName);
+        if (jsonString == null) return null;
+      }
       final data = jsonDecode(jsonString) as Map<String, dynamic>;
-      return AppSettings.fromJson(data);
+      final settings = AppSettings.fromJson(data);
+      // Ensure legacy reads migrate to the new file name.
+      await _saveToJsonFile(settings);
+      return settings;
     } catch (_) {
       return null;
     }

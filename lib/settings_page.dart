@@ -3,7 +3,9 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:file_saver/file_saver.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:bambu_lan/printer_url_formats.dart';
 
 import 'settings_manager.dart';
@@ -32,6 +34,11 @@ class _SettingsPageState extends State<SettingsPage> {
   PrinterUrlType selectedFormat = PrinterUrlType.bambuX1C;
 
   final TextEditingController customUrlController = TextEditingController();
+
+  bool get _supportsQrScan =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
 
   @override
   void initState() {
@@ -180,7 +187,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final bytes = Uint8List.fromList(utf8.encode(jsonString));
 
       final savedPath = await FileSaver.instance.saveFile(
-        name: 'rtsp_settings',
+        name: 'bambu_lan_settings',
         fileExtension: 'json',
         bytes: bytes,
         mimeType: MimeType.json,
@@ -201,6 +208,127 @@ class _SettingsPageState extends State<SettingsPage> {
         ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
       }
     }
+  }
+
+  Map<String, String> _extractQrFields(String raw) {
+    final out = <String, String>{};
+    final text = raw.trim();
+    if (text.isEmpty) return out;
+
+    String? _pick(Map<String, dynamic> m, List<String> keys) {
+      for (final key in keys) {
+        final v = m[key];
+        if (v != null && v.toString().trim().isNotEmpty) {
+          return v.toString().trim();
+        }
+      }
+      return null;
+    }
+
+    void _applyMap(Map<String, dynamic> map) {
+      final specialCode = _pick(map, const [
+        'specialCode',
+        'special_code',
+        'accessCode',
+        'access_code',
+        'token',
+        'code',
+      ]);
+      final printerIp = _pick(map, const [
+        'printerIp',
+        'printer_ip',
+        'ip',
+        'host',
+        'address',
+      ]);
+      final serial = _pick(map, const [
+        'serialNumber',
+        'serial_number',
+        'serial',
+        'sn',
+        'device_sn',
+      ]);
+      if (specialCode != null) out['specialCode'] = specialCode;
+      if (printerIp != null) out['printerIp'] = printerIp;
+      if (serial != null) out['serialNumber'] = serial;
+    }
+
+    if (text.startsWith('{')) {
+      try {
+        final decoded = jsonDecode(text);
+        if (decoded is Map<String, dynamic>) {
+          _applyMap(decoded);
+        }
+      } catch (_) {}
+    }
+
+    final uri = Uri.tryParse(text);
+    if (uri != null) {
+      final qp = <String, dynamic>{};
+      for (final entry in uri.queryParameters.entries) {
+        qp[entry.key] = entry.value;
+      }
+      _applyMap(qp);
+    }
+
+    if (out.isEmpty) {
+      final kv = <String, dynamic>{};
+      final parts = text.split(RegExp(r'[;\n,&]'));
+      for (final p in parts) {
+        final idx = p.indexOf('=');
+        if (idx <= 0) continue;
+        final k = p.substring(0, idx).trim();
+        final v = p.substring(idx + 1).trim();
+        if (k.isNotEmpty && v.isNotEmpty) kv[k] = v;
+      }
+      if (kv.isNotEmpty) _applyMap(kv);
+    }
+
+    if (!out.containsKey('printerIp')) {
+      final m = RegExp(r'(\d{1,3}\.){3}\d{1,3}').firstMatch(text);
+      if (m != null) out['printerIp'] = m.group(0)!;
+    }
+
+    return out;
+  }
+
+  Future<void> _scanQrConfig() async {
+    if (!_supportsQrScan) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('QR scanning is available on mobile only.'),
+        ),
+      );
+      return;
+    }
+
+    final raw = await Navigator.of(
+      context,
+    ).push<String>(MaterialPageRoute(builder: (_) => const _QrScanPage()));
+    if (!mounted || raw == null || raw.trim().isEmpty) return;
+
+    final parsed = _extractQrFields(raw);
+    if (parsed.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('QR scanned, but no known config fields found.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      final code = parsed['specialCode'];
+      final ip = parsed['printerIp'];
+      final sn = parsed['serialNumber'];
+      if (code != null) specialCodeController.text = code;
+      if (ip != null) printerIpController.text = ip;
+      if (sn != null) serialNumberController.text = sn;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Applied printer fields from QR code.')),
+    );
   }
 
   String _generateUrl() {
@@ -224,6 +352,12 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
         actions: [
+          if (_supportsQrScan)
+            IconButton(
+              tooltip: 'Scan printer QR',
+              icon: const Icon(Icons.qr_code_scanner),
+              onPressed: _scanQrConfig,
+            ),
           IconButton(
             tooltip: 'Export settings to JSON',
             icon: const Icon(Icons.file_download),
@@ -405,6 +539,11 @@ class _SettingsPageState extends State<SettingsPage> {
                     },
                     child: const Text('Import'),
                   ),
+                  if (_supportsQrScan)
+                    ElevatedButton(
+                      onPressed: _scanQrConfig,
+                      child: const Text('Scan QR'),
+                    ),
                   ElevatedButton(
                     onPressed: () async {
                       if (_formKey.currentState!.validate()) {
@@ -425,6 +564,37 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _QrScanPage extends StatefulWidget {
+  const _QrScanPage();
+
+  @override
+  State<_QrScanPage> createState() => _QrScanPageState();
+}
+
+class _QrScanPageState extends State<_QrScanPage> {
+  bool _handled = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Scan Printer QR')),
+      body: MobileScanner(
+        onDetect: (capture) {
+          if (_handled) return;
+          for (final code in capture.barcodes) {
+            final value = code.rawValue?.trim();
+            if (value != null && value.isNotEmpty) {
+              _handled = true;
+              Navigator.of(context).pop(value);
+              break;
+            }
+          }
+        },
       ),
     );
   }
