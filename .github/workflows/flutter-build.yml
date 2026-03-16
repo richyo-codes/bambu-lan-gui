@@ -127,7 +127,7 @@ jobs:
         with:
           name: android-apk
           version: ${{ env.SEMVER }}
-          filename: android-apk-${{ env.SEMVER }}.zip
+          append-max-detail-suffix: true
           path: artifacts/android/**
           retention-days: 7
 
@@ -216,8 +216,8 @@ jobs:
         with:
           name: linux-build
           version: ${{ env.SEMVER }}
-          filename: linux-x64-bundle-${{ env.SEMVER }}.zip
           path: build/linux/x64/release/bundle/**
+          append-max-detail-suffix: true
           retention-days: 7
 
   linux_appimage:
@@ -323,7 +323,8 @@ jobs:
         with:
           name: appimage
           version: ${{ env.SEMVER }}
-          filename: appimage-${{ env.SEMVER }}.zip
+          filename: appimage
+          append-max-detail-suffix: true
           path: |
             ./*.AppImage
             AppImage*.zsync
@@ -394,7 +395,7 @@ jobs:
       - name: Upload Windows artifact (Release folder)
         uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: windows-x64-release
+          name: windows-x64-release-${{ env.SEMVER }}
           version: ${{ env.SEMVER }}
           filename: windows-x64-release-${{ env.SEMVER }}.zip
           path: build/windows/x64/runner/Release/**
@@ -419,7 +420,7 @@ jobs:
         with:
           name: windows-msix
           version: ${{ env.SEMVER }}
-          filename: windows-msix-${{ env.SEMVER }}.zip
+          #filename: windows-msix-${{ env.SEMVER }}.zip
           path: '**/*.msix'
           retention-days: 7
 
