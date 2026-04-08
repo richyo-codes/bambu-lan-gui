@@ -1,11 +1,11 @@
 {
-    "name": "printer_lan",
-    "short_name": "printer_lan",
+    "name": "Bambu Buddy",
+    "short_name": "Bambu Buddy",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0E1116",
-    "theme_color": "#0E1116",
-    "description": "A new Flutter project.",
+    "background_color": "#0F3D91",
+    "theme_color": "#0F3D91",
+    "description": "View streams and manage Bambu printers on your LAN.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
