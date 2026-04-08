@@ -5,6 +5,8 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+import org.gradle.api.tasks.compile.JavaCompile
+
 android {
     namespace = "com.rnd.printer_lan"
     compileSdk = flutter.compileSdkVersion
@@ -41,4 +43,24 @@ android {
 
 flutter {
     source = "../.."
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    doFirst {
+        val registrant =
+            project.file("src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java")
+        if (!registrant.exists()) {
+            return@doFirst
+        }
+
+        val original = registrant.readText()
+        val patched =
+            original.replace(
+                "new io.flutter.plugins.sharedpreferences.SharedPreferencesPlugin()",
+                "new io.flutter.plugins.sharedpreferences.LegacySharedPreferencesPlugin()",
+            )
+        if (patched != original) {
+            registrant.writeText(patched)
+        }
+    }
 }
