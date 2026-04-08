@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Bambu Buddy
+Comment=View streams and manage Bambu printers on your LAN
+Exec=printer_lan
+Icon=com.rnd.bambu_lan
+Terminal=false
+Type=Application
+Categories=Utility;Graphics;
+StartupNotify=true

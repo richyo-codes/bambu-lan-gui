@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.rnd.bambu_lan</id>
+  <name>Bambu Buddy</name>
+  <summary>View streams and manage Bambu printers over LAN</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Proprietary</project_license>
+  <description>
+    <p>
+      A Flutter app to discover Bambu printers on your LAN, view live camera
+      streams, browse printer files, and monitor printer status. Settings are
+      stored locally. Do not expose printer services to the internet.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.rnd.bambu_lan.desktop</launchable>
+  <provides>
+    <binary>printer_lan</binary>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2025-01-01"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>
