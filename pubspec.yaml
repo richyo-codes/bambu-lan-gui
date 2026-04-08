@@ -1,4 +1,4 @@
-name: rnd_bambu_rtsp_stream
+name: bambu_lan
 description: "LAN-only Dart helper for Bambu Lab printers (MQTT + FTP/FTPS): subscribe to telemetry, browse/upload SD, and trigger jobs."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -42,12 +42,15 @@ dependencies:
   file_saver: ^0.3.1
   flutter_dotenv: ^6.0.0
   qr_flutter: ^4.1.0
+  mobile_scanner: ^7.1.3
   #flutter_secure_storage: ^10.0.0-beta.4
   #flutter_secure_storage_linux: ^2.0.1
 
 dev_dependencies:
   dart_pubspec_licenses: ^3.0.7
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
 
   # The "flutter_lints" package below contains a set of recommended lints to
@@ -82,7 +85,7 @@ flutter:
 #     - assets/printer_ca.pem
 
 msix_config:
-  display_name: Bambu RTSP Stream
+  display_name: Bambu Buddy
   publisher_display_name: Richard Young
   identity_name: com.ry.printer-lan
   msix_version: 1.0.0.0
