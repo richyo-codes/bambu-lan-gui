@@ -3,10 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:meta/meta.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
-import 'package:rnd_bambu_rtsp_stream/bambu_lan.dart';
+import 'package:bambu_lan/bambu_lan.dart';
 
 // ==========
 // MQTT Client
@@ -65,7 +64,6 @@ class BambuMqtt {
         .withClientIdentifier(_clientId())
         .authenticateAs('bblp', config.accessCode)
         .startClean()
-        .keepAliveFor(30)
         .withWillQos(MqttQos.atLeastOnce);
 
     _client.onDisconnected = () {
@@ -83,9 +81,9 @@ class BambuMqtt {
 
     // Subscribe to reports (always wildcard; specific serial may differ by case)
     _activeSerial = _normalizeSerial(config.serial);
-    _client.subscribe('device/+/report', MqttQos.atLeastOnce);
+    _client.subscribe('device/+/report', MqttQos.atMostOnce);
     if (_activeSerial != null) {
-      _client.subscribe('device/${_activeSerial!}/report', MqttQos.atLeastOnce);
+      _client.subscribe('device/${_activeSerial!}/report', MqttQos.atMostOnce);
     }
 
     _client.updates?.listen((events) {
@@ -209,21 +207,31 @@ class BambuMqtt {
   }
 
   void _maybeInferSerial(String topic, Map<String, dynamic> j) {
+    final m = RegExp(r'^device/([^/]+)/report').firstMatch(topic);
+    if (m != null) {
+      final topicSerial = _normalizeSerial(m.group(1));
+      if (topicSerial != null &&
+          topicSerial.isNotEmpty &&
+          topicSerial != _activeSerial) {
+        stderr.writeln(
+          'MQTT serial inferred from report topic: '
+          '${_activeSerial ?? '(unset)'} -> $topicSerial',
+        );
+        _activeSerial = topicSerial;
+      }
+      return;
+    }
+
     if (_activeSerial != null) {
       return;
     }
 
-    final m = RegExp(r'^device/([^/]+)/report').firstMatch(topic);
-    if (m != null) {
-      _activeSerial = _normalizeSerial(m.group(1));
-    } else {
-      // try payload fields often containing serial/dev id (best-effort)
-      for (final key in ['sn', 'serial', 'dev_id', 'usn']) {
-        final v = j[key];
-        if (v is String && v.isNotEmpty) {
-          _activeSerial = _normalizeSerial(v);
-          break;
-        }
+    // Try payload fields often containing serial/dev id (best-effort).
+    for (final key in ['sn', 'serial', 'dev_id', 'usn']) {
+      final v = j[key];
+      if (v is String && v.isNotEmpty) {
+        _activeSerial = _normalizeSerial(v);
+        break;
       }
     }
   }
@@ -236,9 +244,10 @@ class BambuMqtt {
   /// Publish a raw JSON payload to the printer's request topic.
   Future<void> publishRequest(
     Map<String, dynamic> payload, {
-    MqttQos qos = MqttQos.atLeastOnce,
+    MqttQos qos = MqttQos.atMostOnce,
   }) async {
-    final sn = _normalizeSerial(_activeSerial) ?? _normalizeSerial(config.serial);
+    final sn =
+        _normalizeSerial(_activeSerial) ?? _normalizeSerial(config.serial);
     if (sn == null) {
       throw StateError(
         'Printer serial is unknown; provide BambuLanConfig.serial or wait for first report.',
@@ -315,14 +324,14 @@ class BambuMqtt {
     await publishRequest(payload);
   }
 
-  /// Set print speed factor using standard G-code (M220 S<percent>).
+  /// Set print speed factor using standard G-code (`M220 S<percent>`).
   /// Common range: 10..300 (%). Values are clamped conservatively.
   Future<void> setSpeedPercent(int percent) async {
     final p = percent.clamp(10, 300);
     await sendGcode('M220 S$p');
   }
 
-  /// Optional: Set flow rate factor via G-code (M221 S<percent>).
+  /// Optional: Set flow rate factor via G-code (`M221 S<percent>`).
   Future<void> setFlowPercent(int percent) async {
     final p = percent.clamp(10, 300);
     await sendGcode('M221 S$p');
@@ -354,18 +363,72 @@ class BambuMqtt {
     return publishRequest(payload);
   }
 
-  /// Convenience: request to start a print from a file already on SD.
-  /// [sdPath] is a device-visible absolute path to the uploaded .3mf/.gcode.
-  /// Note: Different firmware builds expect slightly different keys.
-  /// If you receive a verification error, inspect the report and adjust.
-  Future<String> startPrintFromSd(String sdPath) async {
+  String _fileNameFromPath(String path) {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) return trimmed;
+    final parts = trimmed.split('/');
+    return parts.isEmpty ? trimmed : parts.last;
+  }
+
+  String _normalizePrinterPath(String path) {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) return '/';
+    if (trimmed.startsWith('/')) return trimmed;
+    return '/$trimmed';
+  }
+
+  String _toSdcardPath(String path) {
+    final p = _normalizePrinterPath(path);
+    if (p.startsWith('/sdcard/')) return p;
+    if (p == '/sdcard') return '/sdcard';
+    if (p.startsWith('/mnt/sdcard/')) {
+      return '/sdcard/${p.substring('/mnt/sdcard/'.length)}';
+    }
+    if (p == '/mnt/sdcard') return '/sdcard';
+    if (p == '/') return '/sdcard';
+    return '/sdcard$p';
+  }
+
+  String _projectUrlFromPath(String path) {
+    return 'file://${_toSdcardPath(path)}';
+  }
+
+  /// Print a 3MF project file already on printer SD using `project_file`.
+  Future<String> printProjectFile({
+    required String projectPath,
+    int plateIndex = 1,
+    List<int>? amsMapping,
+    bool useAms = true,
+  }) async {
     final seq = (_seq++).toString();
+    final printerPath = _toSdcardPath(projectPath);
+    final projectUrl = _projectUrlFromPath(projectPath);
+    final fileName = _fileNameFromPath(printerPath);
+    final subtaskName = fileName.replaceFirst(
+      RegExp(r'(\.gcode)?\.3mf$', caseSensitive: false),
+      '',
+    );
     final payload = {
       'print': {
         'sequence_id': seq,
-        'command': 'start',
-        // Many firmwares accept one of these forms — try a conservative one:
-        'param': {'file': sdPath, 'is_lan': 1},
+        'command': 'project_file',
+        'param': 'Metadata/plate_$plateIndex.gcode',
+        'project_id': '0',
+        'profile_id': '0',
+        'task_id': '0',
+        'subtask_id': '0',
+        'subtask_name': subtaskName,
+        'file': '',
+        'url': projectUrl,
+        'md5': '',
+        'timelapse': true,
+        'bed_type': 'auto',
+        'bed_levelling': true,
+        'flow_cali': true,
+        'vibration_cali': true,
+        'layer_inspect': true,
+        'ams_mapping': amsMapping ?? <int>[],
+        'use_ams': useAms,
       },
     };
     await publishRequest(payload);
@@ -375,14 +438,15 @@ class BambuMqtt {
   /// Print a G-code file already on the printer.
   Future<String> printGcodeFile(String gcodePath) async {
     final seq = (_seq++).toString();
+    final printerPath = _toSdcardPath(gcodePath);
     final payload = {
       'print': {
         'sequence_id': seq,
         'command': 'gcode_file',
-        'param': gcodePath,
+        'param': printerPath,
       },
     };
-    await publishRequest(payload, qos: MqttQos.atLeastOnce);
+    await publishRequest(payload, qos: MqttQos.atMostOnce);
     return seq;
   }
 
@@ -396,7 +460,7 @@ class BambuMqtt {
         'push_target': 1,
       },
     };
-    await publishRequest(payload);
+    await publishRequest(payload, qos: MqttQos.atMostOnce);
   }
 }
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:rnd_bambu_rtsp_stream/bambu_lan.dart';
-import 'package:rnd_bambu_rtsp_stream/bambu_mqtt.dart';
-import 'package:rnd_bambu_rtsp_stream/settings_manager.dart';
+import 'package:bambu_lan/bambu_lan.dart';
+import 'package:bambu_lan/bambu_mqtt.dart';
+import 'package:bambu_lan/settings_manager.dart';
 import 'window_drag_controller.dart';
 
 class MqttControlPage extends StatefulWidget {
@@ -159,7 +159,10 @@ class _MqttControlPageState extends State<MqttControlPage> {
       setState(() => _status = 'Controls are locked.');
       return;
     }
-    final printing = (_gcodeState == 'RUNNING' || _gcodeState == 'PAUSED' || _gcodeState == 'PREPARE');
+    final printing =
+        (_gcodeState == 'RUNNING' ||
+        _gcodeState == 'PAUSED' ||
+        _gcodeState == 'PREPARE');
     if (!printing) {
       setState(() => _status = 'No active print to cancel.');
       return;
@@ -168,7 +171,10 @@ class _MqttControlPageState extends State<MqttControlPage> {
       setState(() => _status = 'Blocked during print.');
       return;
     }
-    final ok = await _confirm(context, 'Cancel current print? This stops the job.');
+    final ok = await _confirm(
+      context,
+      'Cancel current print? This stops the job.',
+    );
     if (!ok) return;
     await _ensureConnected();
     try {
@@ -208,307 +214,314 @@ class _MqttControlPageState extends State<MqttControlPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const WindowDragArea(
-          child: SizedBox(
-            width: double.infinity,
-            child: Text('MQTT Controls'),
+    return FramelessWindowResizeFrame(
+      child: Scaffold(
+        appBar: AppBar(
+          title: const WindowDragArea(
+            child: SizedBox(
+              width: double.infinity,
+              child: Text('MQTT Controls'),
+            ),
           ),
+          actions: const [WindowControlButtons()],
         ),
-        actions: const [WindowControlButtons()],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                ElevatedButton(
-                  onPressed: _connecting ? null : _ensureConnected,
-                  child: Text(_connecting ? 'Connecting…' : 'Connect'),
-                ),
-                const SizedBox(width: 12),
-                Text(_status),
-                const Spacer(),
-                const Text('Armed'),
-                Switch(
-                  value: _controlsArmed,
-                  onChanged: (v) => setState(() => _controlsArmed = v),
-                ),
-              ],
-            ),
-            if (_gcodeState != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4.0),
-                child: Row(
-                  children: [
-                    Text('State: ${_gcodeState!}'),
-                    const SizedBox(width: 16),
-                    const Text('Allow during print'),
-                    Switch(
-                      value: _allowDuringPrint,
-                      onChanged: (v) => setState(() => _allowDuringPrint = v),
-                    ),
-                  ],
-                ),
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  ElevatedButton(
+                    onPressed: _connecting ? null : _ensureConnected,
+                    child: Text(_connecting ? 'Connecting…' : 'Connect'),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(_status),
+                  const Spacer(),
+                  const Text('Armed'),
+                  Switch(
+                    value: _controlsArmed,
+                    onChanged: (v) => setState(() => _controlsArmed = v),
+                  ),
+                ],
               ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Homing'),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        ElevatedButton(
-                          onPressed: _doHomeAll,
-                          child: const Text('Home All'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Move (relative)'),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Text('XY step:'),
-                        const SizedBox(width: 8),
-                        DropdownButton<double>(
-                          value: _xyStep,
-                          items: const [1, 5, 10, 25, 50]
-                              .map(
-                                (e) => DropdownMenuItem<double>(
-                                  value: e.toDouble(),
-                                  child: Text('${e}mm'),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (v) => setState(() => _xyStep = v ?? 10),
-                        ),
-                        const SizedBox(width: 24),
-                        const Text('Z step:'),
-                        const SizedBox(width: 8),
-                        DropdownButton<double>(
-                          value: _zStep,
-                          items: const [0.1, 0.2, 0.5, 1, 2]
-                              .map(
-                                (e) => DropdownMenuItem<double>(
-                                  value: e.toDouble(),
-                                  child: Text('${e}mm'),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (v) => setState(() => _zStep = v ?? 1),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ElevatedButton(
-                          onPressed: () => _move(x: -_xyStep),
-                          child: const Text('X-'),
-                        ),
-                        ElevatedButton(
-                          onPressed: () => _move(x: _xyStep),
-                          child: const Text('X+'),
-                        ),
-                        ElevatedButton(
-                          onPressed: () => _move(y: -_xyStep),
-                          child: const Text('Y-'),
-                        ),
-                        ElevatedButton(
-                          onPressed: () => _move(y: _xyStep),
-                          child: const Text('Y+'),
-                        ),
-                        ElevatedButton(
-                          onPressed: () => _move(z: -_zStep),
-                          child: const Text('Z-'),
-                        ),
-                        ElevatedButton(
-                          onPressed: () => _move(z: _zStep),
-                          child: const Text('Z+'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Speed Profile'),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        DropdownButton<BambuSpeedProfile>(
-                          value: _profile,
-                          items: BambuSpeedProfile.values
-                              .map(
-                                (p) => DropdownMenuItem(
-                                  value: p,
-                                  child: Text(p.label),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (p) =>
-                              setState(() => _profile = p ?? _profile),
-                        ),
-                        const SizedBox(width: 12),
-                        ElevatedButton(
-                          onPressed: () async {
-                            await _ensureConnected();
-                            if (_mqtt == null) return;
-                            try {
-                              await _mqtt!.setSpeedProfile(_profile);
-                              setState(
-                                () =>
-                                    _status = 'Profile set: ${_profile.label}',
-                              );
-                            } catch (e) {
-                              setState(
-                                () => _status = 'Set profile failed: $e',
-                              );
-                            }
-                          },
-                          child: const Text('Apply'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Speed (%)'),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Slider(
-                            min: 10,
-                            max: 300,
-                            divisions: 290,
-                            value: _speedPct.toDouble(),
-                            label: '$_speedPct%',
-                            onChanged: (v) =>
-                                setState(() => _speedPct = v.round()),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 64,
-                          child: Text('$_speedPct%', textAlign: TextAlign.end),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: () async {
-                            await _ensureConnected();
-                            if (_mqtt == null) return;
-                            try {
-                              await _mqtt!.setSpeedPercent(_speedPct);
-                              setState(
-                                () => _status = 'Speed set to $_speedPct%',
-                              );
-                            } catch (e) {
-                              setState(() => _status = 'Set speed failed: $e');
-                            }
-                          },
-                          child: const Text('Apply'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    ElevatedButton(
-                      onPressed: _pause,
-                      child: const Text('Pause'),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: _resume,
-                      child: const Text('Resume'),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: _cancel,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
+              if (_gcodeState != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4.0),
+                  child: Row(
+                    children: [
+                      Text('State: ${_gcodeState!}'),
+                      const SizedBox(width: 16),
+                      const Text('Allow during print'),
+                      Switch(
+                        value: _allowDuringPrint,
+                        onChanged: (v) => setState(() => _allowDuringPrint = v),
                       ),
-                      child: const Text('Cancel'),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Safe mode: No commands are sent unless Armed. Opening this screen does not send any commands.',
-              style: TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: Card(
+              const SizedBox(height: 16),
+              Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(8.0),
+                  padding: const EdgeInsets.all(12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Command Log'),
-                      const Divider(height: 8),
-                      Expanded(
-                        child: ListView.builder(
-                          itemCount: _cmdLog.length,
-                          itemBuilder: (context, i) => Text(
-                            _cmdLog[i],
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 12,
-                            ),
+                      const Text('Homing'),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          ElevatedButton(
+                            onPressed: _doHomeAll,
+                            child: const Text('Home All'),
                           ),
-                        ),
+                        ],
                       ),
                     ],
                   ),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Move (relative)'),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Text('XY step:'),
+                          const SizedBox(width: 8),
+                          DropdownButton<double>(
+                            value: _xyStep,
+                            items: const [1, 5, 10, 25, 50]
+                                .map(
+                                  (e) => DropdownMenuItem<double>(
+                                    value: e.toDouble(),
+                                    child: Text('${e}mm'),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) => setState(() => _xyStep = v ?? 10),
+                          ),
+                          const SizedBox(width: 24),
+                          const Text('Z step:'),
+                          const SizedBox(width: 8),
+                          DropdownButton<double>(
+                            value: _zStep,
+                            items: const [0.1, 0.2, 0.5, 1, 2]
+                                .map(
+                                  (e) => DropdownMenuItem<double>(
+                                    value: e.toDouble(),
+                                    child: Text('${e}mm'),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) => setState(() => _zStep = v ?? 1),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ElevatedButton(
+                            onPressed: () => _move(x: -_xyStep),
+                            child: const Text('X-'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => _move(x: _xyStep),
+                            child: const Text('X+'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => _move(y: -_xyStep),
+                            child: const Text('Y-'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => _move(y: _xyStep),
+                            child: const Text('Y+'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => _move(z: -_zStep),
+                            child: const Text('Z-'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => _move(z: _zStep),
+                            child: const Text('Z+'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Speed Profile'),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          DropdownButton<BambuSpeedProfile>(
+                            value: _profile,
+                            items: BambuSpeedProfile.values
+                                .map(
+                                  (p) => DropdownMenuItem(
+                                    value: p,
+                                    child: Text(p.label),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (p) =>
+                                setState(() => _profile = p ?? _profile),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton(
+                            onPressed: () async {
+                              await _ensureConnected();
+                              if (_mqtt == null) return;
+                              try {
+                                await _mqtt!.setSpeedProfile(_profile);
+                                setState(
+                                  () => _status =
+                                      'Profile set: ${_profile.label}',
+                                );
+                              } catch (e) {
+                                setState(
+                                  () => _status = 'Set profile failed: $e',
+                                );
+                              }
+                            },
+                            child: const Text('Apply'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Speed (%)'),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Slider(
+                              min: 10,
+                              max: 300,
+                              divisions: 290,
+                              value: _speedPct.toDouble(),
+                              label: '$_speedPct%',
+                              onChanged: (v) =>
+                                  setState(() => _speedPct = v.round()),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 64,
+                            child: Text(
+                              '$_speedPct%',
+                              textAlign: TextAlign.end,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: () async {
+                              await _ensureConnected();
+                              if (_mqtt == null) return;
+                              try {
+                                await _mqtt!.setSpeedPercent(_speedPct);
+                                setState(
+                                  () => _status = 'Speed set to $_speedPct%',
+                                );
+                              } catch (e) {
+                                setState(
+                                  () => _status = 'Set speed failed: $e',
+                                );
+                              }
+                            },
+                            child: const Text('Apply'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      ElevatedButton(
+                        onPressed: _pause,
+                        child: const Text('Pause'),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: _resume,
+                        child: const Text('Resume'),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: _cancel,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                        ),
+                        child: const Text('Cancel'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Safe mode: No commands are sent unless Armed. Opening this screen does not send any commands.',
+                style: TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Command Log'),
+                        const Divider(height: 8),
+                        Expanded(
+                          child: ListView.builder(
+                            itemCount: _cmdLog.length,
+                            itemBuilder: (context, i) => Text(
+                              _cmdLog[i],
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
