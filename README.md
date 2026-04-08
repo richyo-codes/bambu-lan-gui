@@ -51,11 +51,17 @@ The app previews the generated URL for the selected format.
 ### Where Settings Are Stored
 
 - SharedPreferences: basic key‑value copy for compatibility.
-- JSON file: `rtsp_settings.json` inside the platform’s application support directory (mobile/desktop). On web, file I/O is skipped.
+- JSON file: `bambu_lan_settings.json` inside the platform’s application support directory (mobile/desktop). On web, file I/O is skipped.
+  - Backward compatibility: legacy `rtsp_settings.json` is still read and migrated automatically.
 
 ## Platforms
 
 - Android, Linux, Windows.
+
+## Development Notes
+
+- GTK4 rendering internals and fallback logic:
+  - `docs/GTK4_VIDEO_RENDERING.md`
 
 ## Disclaimer
 
