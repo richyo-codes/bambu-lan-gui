@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0F3D91"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
+    </linearGradient>
+    <linearGradient id="houseTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FEF3C7"/>
+      <stop offset="100%" stop-color="#FCD34D"/>
+    </linearGradient>
+    <linearGradient id="houseLeft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+    <linearGradient id="houseRight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FBBF24"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFF7ED"/>
+      <stop offset="100%" stop-color="#FDBA74"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="180" ry="180" fill="url(#bg)"/>
+
+  <path d="M512 210 C 650 260, 748 284, 820 300 C 820 560, 700 720, 512 810 C 324 720, 204 560, 204 300 C 276 284, 374 260, 512 210 Z"
+        fill="url(#shield)" opacity="0.35" stroke="#FFEDD5" stroke-width="14"/>
+
+  <polygon points="512,260 712,380 512,500 312,380" fill="url(#houseTop)"/>
+  <polygon points="312,380 512,500 512,740 312,620" fill="url(#houseLeft)"/>
+  <polygon points="712,380 512,500 512,740 712,620" fill="url(#houseRight)"/>
+
+  <rect x="420" y="500" width="200" height="240" rx="16" fill="#0B1324" opacity="0.35"/>
+  <polygon points="512,540 610,610 512,680 414,610" fill="#FEF3C7"/>
+  <polygon points="414,610 512,680 512,750 414,680" fill="#FBBF24"/>
+  <polygon points="610,610 512,680 512,750 610,680" fill="#F59E0B"/>
+
+  <ellipse cx="512" cy="460" rx="90" ry="52" fill="#F8FAFC" stroke="#0B1324" stroke-width="10"/>
+  <circle cx="512" cy="460" r="28" fill="#F59E0B"/>
+  <circle cx="512" cy="460" r="12" fill="#0B1324"/>
+  <circle cx="522" cy="448" r="6" fill="#F8FAFC"/>
+</svg>

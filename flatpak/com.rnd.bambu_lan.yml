@@ -1,0 +1,83 @@
+app-id: com.rnd.bambu_lan
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: run-printer-lan
+finish-args:
+  - --share=network
+  - --socket=wayland
+  - --socket=x11
+  - --device=dri
+  - --share=ipc
+  - --socket=pulseaudio
+
+modules:
+  # Build libmpv inside Flatpak runtime (inspired by flathub/io.mpv.Mpv)
+  # so we avoid host ABI / glibc mismatch.
+  - name: libass
+    buildsystem: autotools
+    config-opts:
+      - --disable-static
+      - --enable-harfbuzz
+      - --enable-fontconfig
+    sources:
+      - type: git
+        url: https://github.com/libass/libass.git
+        tag: 0.17.4
+        commit: bbb3c7f1570a4a021e52683f3fbdf74fe492ae84
+
+  - name: libplacebo
+    buildsystem: meson
+    config-opts:
+      - -Dvulkan=disabled
+      - -Dshaderc=disabled
+      - -Ddemos=false
+    sources:
+      - type: git
+        url: https://github.com/haasn/libplacebo.git
+        tag: v7.360.0
+        commit: b2ea27dceb6418aabfe9121174c6dbb232942998
+
+  - name: mpv
+    buildsystem: meson
+    config-opts:
+      - -Dlibmpv=true
+      - -Dcplayer=false
+      - -Dwerror=false
+      - -Dbuild-date=false
+    sources:
+      - type: git
+        url: https://github.com/mpv-player/mpv.git
+        tag: v0.41.0
+        commit: 41f6a645068483470267271e1d09966ca3b9f413
+
+  - name: rnd-bambu-rtsp-stream
+    buildsystem: simple
+    sources:
+      # Built Flutter bundle (run `flutter build linux --release` first)
+      - type: dir
+        path: ../build/linux/x64/release/bundle
+        dest: bundle
+      # Package metadata (desktop/metainfo/icon) from this folder
+      - type: dir
+        path: .
+        dest: flatpak
+    build-commands:
+      # Install Flutter bundle under /app/bin so lib & data sit next to the binary
+      - install -Dm755 bundle/printer_lan /app/bin/printer_lan
+      - cp -r bundle/data /app/bin/
+      - cp -r bundle/lib /app/bin/
+      # Launcher: scope loader path to app libs and runtime-built /app/lib.
+      - |
+        cat > /app/bin/run-printer-lan <<'EOF'
+        #!/usr/bin/env sh
+        # Prefer Wayland for EGL-backed video output, but keep X11 as fallback.
+        export GDK_BACKEND="wayland,x11"
+        export LD_LIBRARY_PATH="/app/lib:/app/bin/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        exec /app/bin/printer_lan "$@"
+        EOF
+      - chmod 755 /app/bin/run-printer-lan
+      # Install desktop & metadata
+      - install -Dm644 flatpak/com.rnd.bambu_lan.desktop /app/share/applications/com.rnd.bambu_lan.desktop
+      - install -Dm644 flatpak/com.rnd.bambu_lan.metainfo.xml /app/share/metainfo/com.rnd.bambu_lan.metainfo.xml
+      - install -Dm644 flatpak/icons/com.rnd.bambu_lan.svg /app/share/icons/hicolor/scalable/apps/com.rnd.bambu_lan.svg
