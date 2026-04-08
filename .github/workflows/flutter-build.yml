@@ -15,11 +15,43 @@ jobs:
   android:
     name: Android APK
     runs-on: [ubuntu-latest]
+    env:
+      ANDROID_HOME: ${{ github.workspace }}/.android-sdk
+      ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
     concurrency:
       group: build
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Ensure Git LFS assets
+        run: |
+          if ! command -v git-lfs >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y git-lfs
+          fi
+          git lfs install --local
+          git lfs pull
+
+      - name: Set SEMVER
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            semver="${GITHUB_REF_NAME#v}"
+          else
+            semver="$(git describe --always --tags --dirty 2>/dev/null || true)"
+            if [[ -z "$semver" ]]; then
+              semver="$(git rev-parse --short HEAD 2>/dev/null || true)"
+            fi
+            if [[ -z "$semver" ]]; then
+              semver="0.0.0-unknown"
+            fi
+          fi
+          echo "SEMVER=$semver" >> "$GITHUB_ENV"
 
       - name: Git describe
         id: ghd
@@ -33,10 +65,41 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
+      - name: Install Android SDK command-line tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y wget unzip
+
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          wget -qO /tmp/android-cmdline-tools.zip \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q /tmp/android-cmdline-tools.zip -d /tmp/android-cmdline-tools
+          rm -rf "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          mv /tmp/android-cmdline-tools/cmdline-tools "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          # sdkmanager may exit early after consuming enough input, which causes
+          # `yes` to receive SIGPIPE (141). Ignore that expected pipeline status.
+          set +o pipefail
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses > /dev/null
+          set -o pipefail
+          "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+
+      - name: Configure Flutter Android SDK path
+        run: flutter config --android-sdk "$ANDROID_SDK_ROOT"
 
       - name: Flutter pub get
         run: flutter pub get
@@ -60,9 +123,12 @@ jobs:
           cp LICENSE artifacts/android/
 
       - name: Upload Android artifact bundle
-        uses: actions/upload-artifact@v4
+        uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: android-apk-${{ env.SEMVER }}
+          name: android-apk
+          version: ${{ env.SEMVER }}
+          filename: bambu-buddy-android-apk
+          append-max-detail-suffix: true
           path: artifacts/android/**
           retention-days: 7
 
@@ -74,6 +140,35 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Ensure Git LFS assets
+        run: |
+          if ! command -v git-lfs >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y git-lfs
+          fi
+          git lfs install --local
+          git lfs pull
+
+      - name: Set SEMVER
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            semver="${GITHUB_REF_NAME#v}"
+          else
+            semver="$(git describe --always --tags --dirty 2>/dev/null || true)"
+            if [[ -z "$semver" ]]; then
+              semver="$(git rev-parse --short HEAD 2>/dev/null || true)"
+            fi
+            if [[ -z "$semver" ]]; then
+              semver="0.0.0-unknown"
+            fi
+          fi
+          echo "SEMVER=$semver" >> "$GITHUB_ENV"
 
       - name: Git describe
         id: ghd
@@ -83,8 +178,22 @@ jobs:
       - name: Install Linux desktop dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmimalloc-dev libmimalloc2.0 libpulse-dev libssl-dev curl git unzip xz-utils zip libglu1-mesa pkg-config libstdc++-12-dev libasound2-dev mpv libmpv-dev software-properties-common
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libgtk-4-dev liblzma-dev libmimalloc-dev libmimalloc2.0 libpulse-dev libssl-dev curl git unzip xz-utils zip libglu1-mesa pkg-config libstdc++-12-dev libasound2-dev mpv libmpv-dev software-properties-common lld llvm
           sudo apt-get install -y mpv squashfs-tools patchelf desktop-file-utils zsync
+
+          # Some Flutter/Dart toolchains look for linker binaries under llvm-18 path.
+          # Provide compatibility symlinks when runner images use a different layout.
+          if [ ! -x /usr/lib/llvm-18/bin/ld.lld ] && command -v ld.lld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld.lld)" /usr/lib/llvm-18/bin/ld.lld
+          fi
+          if [ ! -x /usr/lib/llvm-18/bin/ld ] && command -v ld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld)" /usr/lib/llvm-18/bin/ld
+          fi
+          ls -la /usr/lib/llvm-18/bin || true
+          command -v ld.lld || true
+          command -v ld || true
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -103,57 +212,252 @@ jobs:
       - name: Include LICENSE in bundle
         run: cp LICENSE build/linux/x64/release/bundle/
 
-      - name: Upload Linux artifact (bundle)
-        uses: actions/upload-artifact@v4
+      - name: Upload Linux build artifact
+        uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: linux-x64-bundle-${{ env.SEMVER }}
+          name: linux-build
+          version: ${{ env.SEMVER }}
+          filename: bambu-buddy-linux-build
           path: build/linux/x64/release/bundle/**
+          append-max-detail-suffix: true
           retention-days: 7
 
-      - name: Build Linux release bundle                                                                                                                                                                      
-        run: flutter build linux --release                                                            
-                                                                                                      
-      - name: Install appimage-builder            
-        run: |                                    
-          python3 -m pip install --upgrade --user pip                                                                                                                                                         
-          python3 -m pip install --user appimage-builder                                                                                                                                                      
-          echo "$HOME/.local/bin" >> $GITHUB_PATH 
-                                                                                                                                                                                                              
-      - name: Build AppImage                                                                                                                                                                                  
-        run: appimage-builder --recipe appimage-builder.yml --skip-test
-                                                  
-      # - name: Version AppImage files
-      #   run: |
-      #     set -euo pipefail
-      #     shopt -s nullglob
-      #     # Rename AppImage
-      #     for f in ./*.AppImage; do
-      #       base=${f%.AppImage}
-      #       mv "$f" "${base}-$SEMVER.AppImage"
-      #     done
-      #     # Rename zsync if present
-      #     for f in AppImage*.zsync; do
-      #       base=${f%.zsync}
-      #       mv "$f" "${base}-$SEMVER.zsync"
-      #     done
-
-      # - name: Upload AppImage artifact
-      #   uses: actions/upload-artifact@v4
-      #   with:                                                                                                                                                                                                 
-      #     name: Bambu-RTSP-Stream-AppImage-${{ env.SEMVER }}                                                                                                                                                  
-      #     path: |                                 
-      #       ./*.AppImage                                                                                                                                                                                      
-      #       AppImage*.zsync                                                                                                                                                                                   
-      #     if-no-files-found: error   
-
-  windows:
-    name: Windows x64
+  linux_appimage:
+    name: Linux AppImage
+    # Temporarily disabled: current AppImage packaging path is unstable/broken.
+    if: ${{ false }}
     runs-on: [ubuntu-latest]
     concurrency:
       group: build
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Ensure Git LFS assets
+        run: |
+          if ! command -v git-lfs >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y git-lfs
+          fi
+          git lfs install --local
+          git lfs pull
+
+      - name: Set SEMVER
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            semver="${GITHUB_REF_NAME#v}"
+          else
+            semver="$(git describe --always --tags --dirty 2>/dev/null || true)"
+            if [[ -z "$semver" ]]; then
+              semver="$(git rev-parse --short HEAD 2>/dev/null || true)"
+            fi
+            if [[ -z "$semver" ]]; then
+              semver="0.0.0-unknown"
+            fi
+          fi
+          echo "SEMVER=$semver" >> "$GITHUB_ENV"
+
+      - name: Git describe
+        id: ghd
+        run: |
+          echo "tag=$(git describe --always --tags --dirty)" >> "$GITHUB_OUTPUT"
+
+      - name: Install AppImage build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ubuntu-keyring gnupg ca-certificates apt-transport-https
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config libgtk-3-dev libgtk-4-dev liblzma-dev \
+            libmimalloc-dev libmimalloc2.0 libpulse-dev libssl-dev curl git \
+            unzip xz-utils zip libglu1-mesa libstdc++-12-dev libasound2-dev \
+            mpv libmpv-dev software-properties-common lld llvm \
+            squashfs-tools patchelf desktop-file-utils zsync python3-venv fakeroot
+          python3 -m venv .venv-appimage
+          . .venv-appimage/bin/activate
+          python -m pip install --upgrade pip
+          pip install appimage-builder
+          echo "$GITHUB_WORKSPACE/.venv-appimage/bin" >> "$GITHUB_PATH"
+
+          # Some Flutter/Dart toolchains look for linker binaries under llvm-18 path.
+          if [ ! -x /usr/lib/llvm-18/bin/ld.lld ] && command -v ld.lld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld.lld)" /usr/lib/llvm-18/bin/ld.lld
+          fi
+          if [ ! -x /usr/lib/llvm-18/bin/ld ] && command -v ld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld)" /usr/lib/llvm-18/bin/ld
+          fi
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build Linux (release)
+        run: flutter build linux --release
+
+      - name: Build AppImage
+        run: appimage-builder --recipe appimage-builder.yml --skip-test
+
+      - name: Version AppImage files
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in ./*.AppImage; do
+            base=${f%.AppImage}
+            mv "$f" "${base}-$SEMVER.AppImage"
+          done
+          for f in AppImage*.zsync; do
+            base=${f%.zsync}
+            mv "$f" "${base}-$SEMVER.zsync"
+          done
+
+      - name: Upload AppImage artifact
+        uses: richnetdesign/git-artifact-upload@v2
+        with:
+          name: appimage
+          version: ${{ env.SEMVER }}
+          filename: bambu-buddy-appimage
+          append-max-detail-suffix: true
+          path: |
+            ./*.AppImage
+            AppImage*.zsync
+          if-no-files-found: error
+          retention-days: 7
+
+  linux_flatpak:
+    name: Linux Flatpak
+    runs-on: [ubuntu-latest]
+    concurrency:
+      group: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Ensure Git LFS assets
+        run: |
+          if ! command -v git-lfs >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y git-lfs
+          fi
+          git lfs install --local
+          git lfs pull
+
+      - name: Set SEMVER
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            semver="${GITHUB_REF_NAME#v}"
+          else
+            semver="$(git describe --always --tags --dirty 2>/dev/null || true)"
+            if [[ -z "$semver" ]]; then
+              semver="$(git rev-parse --short HEAD 2>/dev/null || true)"
+            fi
+            if [[ -z "$semver" ]]; then
+              semver="0.0.0-unknown"
+            fi
+          fi
+          echo "SEMVER=$semver" >> "$GITHUB_ENV"
+
+      - name: Install Linux and container build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config libgtk-3-dev libgtk-4-dev \
+            liblzma-dev libmimalloc-dev libmimalloc2.0 libpulse-dev \
+            libssl-dev curl git unzip xz-utils zip libglu1-mesa \
+            libstdc++-12-dev libasound2-dev mpv libmpv-dev \
+            software-properties-common lld llvm docker.io
+
+          if [ ! -x /usr/lib/llvm-18/bin/ld.lld ] && command -v ld.lld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld.lld)" /usr/lib/llvm-18/bin/ld.lld
+          fi
+          if [ ! -x /usr/lib/llvm-18/bin/ld ] && command -v ld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld)" /usr/lib/llvm-18/bin/ld
+          fi
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build Linux (release)
+        run: flutter build linux --release
+
+      - name: Build Flatpak bundle
+        run: bash ./tool/build_flatpak_container.sh
+
+      - name: Upload Flatpak artifact
+        uses: richnetdesign/git-artifact-upload@v2
+        with:
+          name: flatpak
+          version: ${{ env.SEMVER }}
+          filename: bambu-buddy-flatpak
+          append-max-detail-suffix: true
+          path: build/com.rnd.bambu_lan.flatpak
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Windows x64
+    runs-on: [windows-latest]
+    concurrency:
+      group: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Ensure Git LFS assets
+        run: |
+          if ! command -v git-lfs >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y git-lfs
+          fi
+          git lfs install --local
+          git lfs pull
+
+      - name: Set SEMVER
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            semver="${GITHUB_REF_NAME#v}"
+          else
+            semver="$(git describe --always --tags --dirty 2>/dev/null || true)"
+            if [[ -z "$semver" ]]; then
+              semver="$(git rev-parse --short HEAD 2>/dev/null || true)"
+            fi
+            if [[ -z "$semver" ]]; then
+              semver="0.0.0-unknown"
+            fi
+          fi
+          echo "SEMVER=$semver" >> "$GITHUB_ENV"
 
       - name: Git describe
         id: ghd
@@ -178,10 +482,33 @@ jobs:
         shell: pwsh
         run: Copy-Item -Path LICENSE -Destination build\windows\x64\runner\Release\LICENSE
 
+      - name: Build Windows MSI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          .\tool\build_msi.ps1 `
+            -Configuration Release `
+            -OutputDir build\windows\x64\installer `
+            -ProductVersion "${{ env.SEMVER }}"
+
+      - name: Upload Windows MSI artifact
+        if: runner.os == 'Windows'
+        uses: richnetdesign/git-artifact-upload@v2
+        with:
+          name: windows-msi
+          version: ${{ env.SEMVER }}
+          filename: windows-msi
+          append-max-detail-suffix: true
+          path: build/windows/x64/installer/*.msi
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload Windows artifact (Release folder)
-        uses: actions/upload-artifact@v4
+        uses: richnetdesign/git-artifact-upload@v2
         with:
           name: windows-x64-release-${{ env.SEMVER }}
+          version: ${{ env.SEMVER }}
+          filename: bambu-buddy-windows-x64-release-${{ env.SEMVER }}.zip
           path: build/windows/x64/runner/Release/**
           retention-days: 7
 
@@ -200,9 +527,11 @@ jobs:
           }
 
       - name: Upload Windows MSIX artifact
-        uses: actions/upload-artifact@v4
+        uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: windows-msix-${{ env.SEMVER }}
+          name: windows-msix
+          version: ${{ env.SEMVER }}
+          filename: bambu-buddy-windows-msix
           path: '**/*.msix'
           retention-days: 7
 
