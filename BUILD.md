@@ -58,10 +58,12 @@ This app uses `media_kit` for video. On Linux, install system `libmpv` runtime f
 
 If video is black or playback fails, verify `libmpv` is present and on the library path, then rebuild: `flutter clean && flutter pub get && flutter run`.
 
-### Windows (MSIX packaging)
-MSIX packaging is configured via `msix_config` in `pubspec.yaml`.
-- Create MSIX: `flutter pub run msix:create`
-- Requirements: Visual Studio 2022, Windows 10/11 SDK, Developer Mode enabled or a valid signing certificate.
+### Windows (EXE + MSI + MSIX)
+- EXE bundle: `flutter build windows` (output under `build/windows/x64/runner/Release/`)
+- MSI installer: `pwsh -NoProfile -ExecutionPolicy Bypass -File tool/build_msi.ps1 -Configuration Release`
+- MSIX packaging is configured via `msix_config` in `pubspec.yaml`.
+  - Create MSIX: `flutter pub run msix:create`
+- Requirements: Visual Studio 2022, Windows 10/11 SDK, and for MSI packaging either WiX v4 (`wix`) or `.NET SDK` (the script auto-installs `wix` tool).
 
 ### Android
 - Ensure an API level supported by your Flutter SDK and device. Connect a device or start an emulator, then `flutter run -d android`.
@@ -88,6 +90,7 @@ MSIX packaging is configured via `msix_config` in `pubspec.yaml`.
 - Analyze: `flutter analyze`
 - Test: `flutter test` (coverage: `flutter test --coverage`)
 - Build: `flutter build apk|appbundle|linux|windows|macos`
+- Windows MSI: `pwsh -NoProfile -ExecutionPolicy Bypass -File tool/build_msi.ps1 -Configuration Release`
 - Windows MSIX: `flutter pub run msix:create`
 
 ## Project Layout
