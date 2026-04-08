@@ -9,7 +9,7 @@ import 'dart:io';
 import 'package:ftpconnect/ftpconnect.dart';
 import 'package:intl/intl.dart';
 import 'package:meta/meta.dart';
-import 'package:rnd_bambu_rtsp_stream/bambu_lan.dart';
+import 'package:bambu_lan/bambu_lan.dart';
 
 class BambuFtp {
   final BambuLanConfig config;

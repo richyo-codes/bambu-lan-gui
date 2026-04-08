@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:path/path.dart' as path;
+import 'package:bambu_lan/app_strings.dart';
 import 'package:flutter/material.dart';
-import 'package:rnd_bambu_rtsp_stream/bambu_lan.dart';
-import 'package:rnd_bambu_rtsp_stream/bambu_mqtt.dart';
-import 'package:rnd_bambu_rtsp_stream/printer_url_formats.dart';
-import 'package:rnd_bambu_rtsp_stream/settings_manager.dart';
-import 'package:rnd_bambu_rtsp_stream/printer_stream_manager.dart';
+import 'package:bambu_lan/bambu_lan.dart';
+import 'package:bambu_lan/bambu_mqtt.dart';
+import 'package:bambu_lan/feature_flags.dart';
+import 'package:bambu_lan/printer_url_formats.dart';
+import 'package:bambu_lan/settings_manager.dart';
+import 'package:bambu_lan/printer_stream_manager.dart';
+import 'package:bambu_lan/monitoring_alerts.dart';
 import 'settings_page.dart';
 import 'mqtt_control_page.dart';
 import 'ftp_browser_page.dart';
@@ -110,12 +113,14 @@ _CliConfig _parseCliArgs(List<String> args) {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final GlobalKey? rootBoundaryKey;
+
+  const MyApp({super.key, this.rootBoundaryKey});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Bambu RTSP Streamer',
+    final app = MaterialApp(
+      title: AppStrings.appDisplayName,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.blue,
@@ -134,6 +139,12 @@ class MyApp extends StatelessWidget {
       home: const StreamPage(),
       debugShowCheckedModeBanner: false,
     );
+
+    if (rootBoundaryKey == null) {
+      return app;
+    }
+
+    return RepaintBoundary(key: rootBoundaryKey, child: app);
   }
 }
 
@@ -145,13 +156,12 @@ class StreamPage extends StatefulWidget {
 }
 
 bool isAccelSupported({TargetPlatform? platformOverride}) {
-
   return true;
 }
 
-class _StreamPageState extends State<StreamPage> {
+class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   late final Player player;
-  late final VideoController controller;
+  late VideoController controller;
   String? currentStreamUrl;
   bool isStreaming = false;
   //final screenshotController = ScreenshotController();
@@ -166,6 +176,7 @@ class _StreamPageState extends State<StreamPage> {
   String _lightNode = 'chamber_light';
   bool _mqttControlsEnabled = false;
   bool _lightControlsEnabled = false;
+  bool _hardwareAccelerationEnabled = true;
 
   // Stall detection & reconnect
   Timer? _stallTimer;
@@ -190,6 +201,9 @@ class _StreamPageState extends State<StreamPage> {
   bool _showVideoControls = false;
   bool _isPlaying = false;
   Timer? _controlsHideTimer;
+  Timer? _autoplayKickTimer;
+  Timer? _resumeProbeTimer;
+  StreamSubscription<BambuReportEvent>? _mqttReportSub;
 
   Future<Directory> _resolveScreenshotDir() async {
     try {
@@ -257,9 +271,7 @@ class _StreamPageState extends State<StreamPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Screenshot failed: $e'),
             behavior: SnackBarBehavior.floating,
@@ -288,9 +300,9 @@ class _StreamPageState extends State<StreamPage> {
       }
     } catch (e) {
       if (showErrors && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Light command failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Light command failed: $e')));
       }
     }
   }
@@ -330,29 +342,54 @@ class _StreamPageState extends State<StreamPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     PlayerConfiguration config = PlayerConfiguration(
       logLevel: MPVLogLevel.debug,
     );
 
-    VideoControllerConfiguration vConfig = VideoControllerConfiguration(
-      enableHardwareAcceleration: isAccelSupported(),
-      hwdec: "auto",
-    );
-
     player = Player(configuration: config);
-    controller = VideoController(player, configuration: vConfig);
+    _rebuildVideoController();
     _setupPlayerListeners();
     _loadUiSettings();
     _attemptAutoConnect();
+    unawaited(MonitoringAlerts.requestAndroidNotificationPermission());
+  }
+
+  void _rebuildVideoController() {
+    final enabled = _hardwareAccelerationEnabled && isAccelSupported();
+    controller = VideoController(
+      player,
+      configuration: VideoControllerConfiguration(
+        enableHardwareAcceleration: enabled,
+        hwdec: enabled ? 'auto' : 'no',
+      ),
+    );
   }
 
   Future<void> _loadUiSettings() async {
     final settings = await SettingsManager.loadSettings();
+    final prevHw = _hardwareAccelerationEnabled;
+    final nextHw = settings.hardwareAccelerationEnabled;
+    await WindowChromeController.setLinuxSystemDecorations(
+      settings.linuxUseSystemWindowDecorations,
+    );
     if (!mounted) return;
+    if (prevHw != nextHw) {
+      _hardwareAccelerationEnabled = nextHw;
+      _rebuildVideoController();
+      if (isStreaming && currentStreamUrl != null) {
+        try {
+          await _openMediaAndEnsurePlaying(currentStreamUrl!);
+        } catch (_) {
+          // Keep current stream state; existing error handling will surface issues.
+        }
+      }
+    }
     setState(() {
       _mqttControlsEnabled = settings.mqttControlsEnabled;
       _lightControlsEnabled = settings.lightControlsEnabled;
+      _hardwareAccelerationEnabled = nextHw;
     });
   }
 
@@ -367,6 +404,7 @@ class _StreamPageState extends State<StreamPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _stallTimer?.cancel();
     _bufferingSub?.cancel();
     _bufferPosSub?.cancel();
@@ -374,9 +412,27 @@ class _StreamPageState extends State<StreamPage> {
     _errorSub?.cancel();
     _playingSub?.cancel();
     _controlsHideTimer?.cancel();
+    _autoplayKickTimer?.cancel();
+    _resumeProbeTimer?.cancel();
+    _mqttReportSub?.cancel();
     player.dispose();
     mqttClient?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _handleAppResumed();
+        break;
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        _handleAppBackgrounded();
+        break;
+    }
   }
 
   Future<void> _startStream(String url) async {
@@ -393,8 +449,7 @@ class _StreamPageState extends State<StreamPage> {
 
     // Start video stream first (independent of MQTT)
     try {
-      final media = Media(url);
-      await player.open(media);
+      await _openMediaAndEnsurePlaying(url);
       _startStallMonitor();
     } catch (e) {
       if (mounted) {
@@ -408,82 +463,19 @@ class _StreamPageState extends State<StreamPage> {
       return;
     }
 
-    // Create and connect MQTT client (don't await, let it connect in background)
-    mqttClient?.dispose();
-    final config = BambuLanConfig(
-      printerIp: printerIp,
-      accessCode: accessCode,
-      serial: serial,
-      mqttPort: 8883,
-      allowBadCerts: true,
+    unawaited(
+      _connectMqtt(
+        printerIp: printerIp,
+        accessCode: accessCode,
+        serial: serial,
+      ),
     );
-    mqttClient = BambuMqtt(config);
-
-    // Attempt MQTT connection but don't let it block video streaming
-    mqttClient!
-        .connect()
-        .then((_) {
-          if (mounted) {
-            setState(() {
-              _mqttConnected = true;
-              printerStatus = 'MQTT Connected';
-            });
-          }
-          mqttClient!.requestPushAll().catchError((_) {});
-          // Listen for printer reports if connection succeeds
-          mqttClient!.reportStream.listen((event) {
-            if (!mounted) return;
-            final detectedNode = _detectLightNode(event.json);
-            if (detectedNode != null) {
-              _lightNode = detectedNode;
-            }
-            final lightState =
-                _extractLightStateForNode(event.json, _lightNode);
-            setState(() {
-              if (event.printStatus != null) {
-                final merged = _mergePrintStatus(
-                  event.printStatus!,
-                  _lastPrintStatus,
-                );
-                final pct = merged.percent != null ? '${merged.percent}%' : '';
-                final left = merged.remainingMinutes != null
-                    ? ' • ${merged.remainingMinutes}m left'
-                    : '';
-                printerStatus =
-                    '${merged.gcodeState}${pct.isNotEmpty ? ' $pct' : ''}$left';
-                _lastPrintStatus = merged;
-              } else if (event.type != null && event.type != 'SYSTEM') {
-                printerStatus = event.type!;
-              }
-              if (lightState != null) {
-                _chamberLightOn = lightState;
-              }
-            });
-            if (event.printStatus != null) {
-              _handleAutoLight(_lastPrintStatus!);
-            }
-            if (!_mqttConnected) {
-              setState(() => _mqttConnected = true);
-            }
-          });
-        })
-        .catchError((e) {
-          // Handle MQTT connection failure without affecting video stream
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('MQTT connection failed: $e')),
-            );
-            setState(() {
-              printerStatus = 'MQTT Disconnected';
-              _mqttConnected = false;
-            });
-          }
-        });
   }
 
   Future<void> _stopStream() async {
     await player.stop();
-    mqttClient?.dispose();
+    _resumeProbeTimer?.cancel();
+    await _disposeMqtt();
     _stallTimer?.cancel();
     setState(() {
       isStreaming = false;
@@ -494,6 +486,289 @@ class _StreamPageState extends State<StreamPage> {
       _wasPrinting = false;
       _mqttConnected = false;
     });
+  }
+
+  void _handleAppBackgrounded() {
+    _resumeProbeTimer?.cancel();
+    _autoplayKickTimer?.cancel();
+    _stallTimer?.cancel();
+    _lastPosition = player.state.position;
+    _lastProgressAt = DateTime.now();
+  }
+
+  Future<void> _handleAppResumed() async {
+    if (!isStreaming || currentStreamUrl == null) {
+      return;
+    }
+
+    final url = currentStreamUrl!;
+    _lastPosition = player.state.position;
+    _lastProgressAt = DateTime.now();
+
+    try {
+      await player.play();
+    } catch (_) {
+      // Resume probing below will force a reconnect if playback is still stale.
+    }
+
+    _startAutoplayKick(url);
+    _startStallMonitor();
+    _scheduleResumeProbe(url);
+
+    if (!_mqttConnected) {
+      final settings = await PrinterStreamManager.getPrinterSettings();
+      unawaited(
+        _connectMqtt(
+          printerIp: settings.printerIp,
+          accessCode: settings.accessCode,
+          serial: settings.serialNumber,
+          showErrors: false,
+        ),
+      );
+    } else {
+      mqttClient?.requestPushAll().catchError((_) {});
+    }
+  }
+
+  void _scheduleResumeProbe(String url) {
+    _resumeProbeTimer?.cancel();
+    final probePosition = player.state.position;
+    _resumeProbeTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted || !isStreaming || currentStreamUrl != url) {
+        return;
+      }
+      final state = player.state;
+      final advanced = state.position > probePosition;
+      if (state.playing && advanced) {
+        return;
+      }
+      _attemptReconnect(
+        reason: 'resume recovery',
+        immediate: true,
+        resetAttempts: true,
+      );
+    });
+  }
+
+  Future<void> _disposeMqtt() async {
+    await _mqttReportSub?.cancel();
+    _mqttReportSub = null;
+    final client = mqttClient;
+    mqttClient = null;
+    if (client != null) {
+      await client.dispose();
+    }
+  }
+
+  Future<void> _connectMqtt({
+    required String printerIp,
+    required String accessCode,
+    required String? serial,
+    bool showErrors = true,
+  }) async {
+    await _disposeMqtt();
+
+    final config = BambuLanConfig(
+      printerIp: printerIp,
+      accessCode: accessCode,
+      serial: serial,
+      mqttPort: 8883,
+      allowBadCerts: true,
+    );
+    final client = BambuMqtt(config);
+    mqttClient = client;
+
+    try {
+      await client.connect();
+      if (!mounted || mqttClient != client) {
+        await client.dispose();
+        return;
+      }
+      setState(() {
+        _mqttConnected = true;
+        if (_lastPrintStatus == null) {
+          printerStatus = 'MQTT Connected';
+        }
+      });
+      _mqttReportSub = client.reportStream.listen(_handleMqttReportEvent);
+      client.requestPushAll().catchError((_) {});
+    } catch (e) {
+      if (mqttClient == client) {
+        mqttClient = null;
+      }
+      await client.dispose();
+      if (!mounted) return;
+      if (showErrors) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('MQTT connection failed: $e')));
+      }
+      setState(() {
+        printerStatus = 'MQTT Disconnected';
+        _mqttConnected = false;
+      });
+    }
+  }
+
+  void _handleMqttReportEvent(BambuReportEvent event) {
+    if (!mounted) return;
+    final detectedNode = _detectLightNode(event.json);
+    if (detectedNode != null) {
+      _lightNode = detectedNode;
+    }
+    final lightState = _extractLightStateForNode(event.json, _lightNode);
+    setState(() {
+      if (event.printStatus != null) {
+        final previous = _lastPrintStatus;
+        final merged = _mergePrintStatus(event.printStatus!, previous);
+        final pct = merged.percent != null ? '${merged.percent}%' : '';
+        final left = merged.remainingMinutes != null
+            ? ' • ${merged.remainingMinutes}m left'
+            : '';
+        printerStatus =
+            '${merged.gcodeState}${pct.isNotEmpty ? ' $pct' : ''}$left';
+        _lastPrintStatus = merged;
+        _notifyForPrintStateTransition(previous, merged);
+      } else if (event.type != null && event.type != 'SYSTEM') {
+        printerStatus = event.type!;
+      }
+      if (lightState != null) {
+        _chamberLightOn = lightState;
+      }
+      if (!_mqttConnected) {
+        _mqttConnected = true;
+      }
+    });
+    if (event.printStatus != null) {
+      _handleAutoLight(_lastPrintStatus!);
+    }
+  }
+
+  void _notifyForPrintStateTransition(
+    BambuPrintStatus? previous,
+    BambuPrintStatus current,
+  ) {
+    if (previous == null) {
+      return;
+    }
+
+    final previousState = previous.gcodeState.trim().toUpperCase();
+    final currentState = current.gcodeState.trim().toUpperCase();
+    if (currentState.isEmpty || previousState == currentState) {
+      return;
+    }
+
+    if (currentState == 'PAUSED') {
+      _emitMonitoringAttention(
+        title: 'Print paused',
+        body: _monitoringBody(
+          current,
+          fallback: 'The current print is paused.',
+        ),
+      );
+      return;
+    }
+
+    if (_isErrorPrintState(currentState)) {
+      _emitMonitoringAttention(
+        title: 'Printer needs attention',
+        body: _monitoringBody(
+          current,
+          fallback: 'Printer reported state $currentState.',
+        ),
+      );
+      return;
+    }
+
+    if (_isSuccessPrintState(currentState) &&
+        _isActivePrintState(previousState)) {
+      _emitMonitoringSuccess(
+        title: 'Print finished',
+        body: _monitoringBody(
+          current,
+          fallback: 'The monitored print completed successfully.',
+        ),
+      );
+    }
+  }
+
+  bool _isActivePrintState(String state) {
+    switch (state) {
+      case 'RUNNING':
+      case 'PREPARE':
+      case 'PAUSED':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  bool _isSuccessPrintState(String state) {
+    switch (state) {
+      case 'FINISH':
+      case 'FINISHED':
+      case 'COMPLETE':
+      case 'COMPLETED':
+      case 'SUCCESS':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  bool _isErrorPrintState(String state) {
+    switch (state) {
+      case 'FAILED':
+      case 'FAIL':
+      case 'ERROR':
+      case 'EXCEPTION':
+      case 'CANCELED':
+      case 'CANCELLED':
+      case 'ABORTED':
+      case 'STOPPED':
+      case 'ALARM':
+        return true;
+      default:
+        return state.contains('ERROR') ||
+            state.contains('FAIL') ||
+            state.contains('EXCEPTION');
+    }
+  }
+
+  String _monitoringBody(BambuPrintStatus status, {required String fallback}) {
+    final name = status.subtaskName ?? status.gcodeFile;
+    if (name != null && name.trim().isNotEmpty) {
+      return name.trim();
+    }
+    return fallback;
+  }
+
+  void _emitMonitoringAttention({required String title, required String body}) {
+    if (Platform.isAndroid) {
+      unawaited(
+        MonitoringAlerts.showAndroidNotification(
+          title: title,
+          body: body,
+          success: false,
+        ),
+      );
+      return;
+    }
+    unawaited(MonitoringAlerts.playAttentionSound());
+  }
+
+  void _emitMonitoringSuccess({required String title, required String body}) {
+    if (Platform.isAndroid) {
+      unawaited(
+        MonitoringAlerts.showAndroidNotification(
+          title: title,
+          body: body,
+          success: true,
+        ),
+      );
+      return;
+    }
+    unawaited(MonitoringAlerts.playSuccessSound());
   }
 
   void _setupPlayerListeners() {
@@ -625,8 +900,15 @@ class _StreamPageState extends State<StreamPage> {
     // Error events are handled in _setupPlayerListeners.
   }
 
-  void _attemptReconnect({required String reason}) {
+  void _attemptReconnect({
+    required String reason,
+    bool immediate = false,
+    bool resetAttempts = false,
+  }) {
     if (_reconnecting || currentStreamUrl == null) return;
+    if (resetAttempts) {
+      _reconnectAttempts = 0;
+    }
     if (_reconnectAttempts >= _maxReconnectAttempts) {
       // Give up for now.
       if (mounted) {
@@ -639,9 +921,11 @@ class _StreamPageState extends State<StreamPage> {
     _reconnecting = true;
     final attempt = _reconnectAttempts + 1;
     // Exponential backoff: 2, 4, 8, 16... seconds (capped at 30s)
-    final delaySeconds = (2 << (_reconnectAttempts)).clamp(2, 30);
+    final delaySeconds = immediate
+        ? 0
+        : (2 << (_reconnectAttempts)).clamp(2, 30);
 
-    if (mounted) {
+    if (mounted && !immediate) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -657,7 +941,7 @@ class _StreamPageState extends State<StreamPage> {
         return;
       }
       try {
-        await player.open(Media(currentStreamUrl!));
+        await _openMediaAndEnsurePlaying(currentStreamUrl!);
         _reconnectAttempts = 0;
         _reconnecting = false;
         _lastPosition = Duration.zero;
@@ -679,6 +963,45 @@ class _StreamPageState extends State<StreamPage> {
     });
   }
 
+  Future<void> _openMediaAndEnsurePlaying(String url) async {
+    await player.open(Media(url), play: true);
+    await player.play();
+    _startAutoplayKick(url);
+  }
+
+  void _startAutoplayKick(String url) {
+    _autoplayKickTimer?.cancel();
+    final startedAt = DateTime.now();
+    _autoplayKickTimer = Timer.periodic(const Duration(milliseconds: 350), (
+      timer,
+    ) async {
+      if (!mounted || !isStreaming || currentStreamUrl != url) {
+        timer.cancel();
+        return;
+      }
+      final state = player.state;
+      final elapsed = DateTime.now().difference(startedAt);
+
+      // Stop once playback is really moving.
+      if (state.playing && state.position > Duration.zero) {
+        timer.cancel();
+        return;
+      }
+
+      // Give up after a short window to avoid endless retries.
+      if (elapsed > const Duration(seconds: 8)) {
+        timer.cancel();
+        return;
+      }
+
+      // GTK4 can transiently report paused right after output rebind.
+      // Keep nudging play during startup until frames advance.
+      if (!state.playing && !state.buffering) {
+        await player.play();
+      }
+    });
+  }
+
   Future<void> _openSettings() async {
     await Navigator.push(
       context,
@@ -693,262 +1016,368 @@ class _StreamPageState extends State<StreamPage> {
     _startStream(url);
   }
 
+  bool _isMobileLandscape(BuildContext context) {
+    if (!(Platform.isAndroid || Platform.isIOS)) {
+      return false;
+    }
+    return MediaQuery.of(context).orientation == Orientation.landscape;
+  }
+
+  Widget _buildVideoSurface({required bool compactLayout}) {
+    return MouseRegion(
+      onEnter: (_) {
+        setState(() {
+          _showVideoControls = true;
+        });
+        _controlsHideTimer?.cancel();
+      },
+      onExit: (_) {
+        setState(() {
+          _showVideoControls = false;
+        });
+        _controlsHideTimer?.cancel();
+      },
+      child: GestureDetector(
+        onTap: _showControlsTemporarily,
+        child: Stack(
+          children: [
+            Positioned.fill(child: Video(controller: controller)),
+            if (_lastPrintStatus != null)
+              Positioned(
+                left: 12,
+                top: 12,
+                child: _PrintOverlayStatus(status: _lastPrintStatus),
+              ),
+            Positioned.fill(
+              child: IgnorePointer(
+                ignoring: !_showVideoControls,
+                child: AnimatedOpacity(
+                  opacity: _showVideoControls ? 1 : 0,
+                  duration: const Duration(milliseconds: 150),
+                  child: Container(
+                    color: Colors.black.withOpacity(0.2),
+                    child: Center(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.55),
+                          borderRadius: BorderRadius.circular(48),
+                        ),
+                        child: IconButton(
+                          iconSize: compactLayout ? 44 : 56,
+                          color: Colors.white,
+                          icon: Icon(
+                            _isPlaying ? Icons.pause : Icons.play_arrow,
+                          ),
+                          onPressed: () {
+                            if (_isPlaying) {
+                              player.pause();
+                            } else {
+                              player.play();
+                            }
+                            _showControlsTemporarily();
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStreamActions({required bool compactLayout}) {
+    if (compactLayout) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ElevatedButton.icon(
+            onPressed: _stopStream,
+            icon: const Icon(Icons.stop),
+            label: const Text('Stop'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _takeScreenshot,
+            icon: const Icon(Icons.camera_alt),
+            label: const Text('Screenshot'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _openSettings,
+            icon: const Icon(Icons.settings),
+            label: const Text('Settings'),
+          ),
+          if (_lightControlsEnabled) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _toggleChamberLight,
+              icon: Icon(
+                _chamberLightOn == true
+                    ? Icons.lightbulb
+                    : Icons.lightbulb_outline,
+              ),
+              label: Text(_lightStatusLabel()),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(child: Text('Auto light while printing')),
+                Switch(
+                  value: _autoLightWhilePrinting,
+                  onChanged: (value) {
+                    setState(() => _autoLightWhilePrinting = value);
+                    final ps = _lastPrintStatus;
+                    if (value && ps != null) {
+                      _handleAutoLight(ps, force: true);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ],
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: [
+            ElevatedButton.icon(
+              onPressed: _stopStream,
+              icon: const Icon(Icons.stop),
+              label: const Text('Stop'),
+            ),
+            ElevatedButton.icon(
+              onPressed: _takeScreenshot,
+              icon: const Icon(Icons.camera_alt),
+              label: const Text(''),
+            ),
+            ElevatedButton.icon(
+              onPressed: _openSettings,
+              icon: const Icon(Icons.settings),
+              label: const Text('Settings'),
+            ),
+            if (_lightControlsEnabled)
+              OutlinedButton.icon(
+                onPressed: _toggleChamberLight,
+                icon: Icon(
+                  _chamberLightOn == true
+                      ? Icons.lightbulb
+                      : Icons.lightbulb_outline,
+                ),
+                label: Text(_lightStatusLabel()),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (_lightControlsEnabled)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('Auto light while printing'),
+              Switch(
+                value: _autoLightWhilePrinting,
+                onChanged: (value) {
+                  setState(() => _autoLightWhilePrinting = value);
+                  final ps = _lastPrintStatus;
+                  if (value && ps != null) {
+                    _handleAutoLight(ps, force: true);
+                  }
+                },
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Widget _buildStreamingBody(
+    BuildContext context, {
+    required bool compactLayout,
+  }) {
+    final videoPane = Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              compactLayout ? 8 : 0,
+              compactLayout ? 8 : 0,
+              compactLayout ? 4 : 0,
+              compactLayout ? 8 : 0,
+            ),
+            child: _buildVideoSurface(compactLayout: compactLayout),
+          ),
+        ),
+        if (_bufferFraction != null || _buffering)
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: compactLayout ? 8 : 8),
+            child: LinearProgressIndicator(
+              value: _bufferFraction,
+              minHeight: 4,
+            ),
+          ),
+        if (!compactLayout && _lastPrintStatus != null)
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: _MetricsPanel(ps: _lastPrintStatus!),
+          ),
+      ],
+    );
+
+    if (compactLayout) {
+      return Row(
+        children: [
+          Expanded(child: videoPane),
+          SizedBox(
+            width: 248,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 12, 12),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_lastPrintStatus != null)
+                        _MetricsPanel(ps: _lastPrintStatus!),
+                      if (_lastPrintStatus != null) const SizedBox(height: 12),
+                      _buildStreamActions(compactLayout: true),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        Expanded(child: videoPane),
+        const Divider(),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: _buildStreamActions(compactLayout: false),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDisconnectedBody() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.videocam_off, size: 64, color: Colors.grey),
+          const SizedBox(height: 16),
+          const Text(
+            'No active stream',
+            style: TextStyle(fontSize: 18, color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _openSettings,
+            child: const Text('Configure Stream'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final streamUrl = await PrinterStreamManager.getStreamUrl();
+              if (streamUrl != null) {
+                _onConnect(streamUrl);
+              } else {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please configure printer settings first'),
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Connect to Printer'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final titleLines = _buildTitleLines(_lastPrintStatus);
+    final compactLandscape = _isMobileLandscape(context);
     final double? toolbarHeight = titleLines.isEmpty
         ? null
         : kToolbarHeight + (18.0 * titleLines.length);
 
-    return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: toolbarHeight,
-        title: WindowDragArea(
-          child: SizedBox(
-            width: double.infinity,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Bambu RTSP Stream'),
-                if (titleLines.isNotEmpty)
-                  ...titleLines.map(
-                    (line) => Text(
-                      line,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          if (_mqttControlsEnabled)
-            IconButton(
-              tooltip: 'MQTT Controls',
-              icon: const Icon(Icons.tune),
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const MqttControlPage()),
-                );
-              },
-            ),
-          IconButton(
-            tooltip: 'FTP Browser',
-            icon: const Icon(Icons.folder_open),
-            onPressed: () {
-              Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const FtpBrowserPage()));
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: _openSettings,
-          ),
-          const WindowControlButtons(),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Video player
-          Expanded(
-            child: Center(
-              child: isStreaming
-                  ? Column(
-                      children: [
-                        Expanded(
-                          child: MouseRegion(
-                            onEnter: (_) {
-                              setState(() {
-                                _showVideoControls = true;
-                              });
-                              _controlsHideTimer?.cancel();
-                            },
-                            onExit: (_) {
-                              setState(() {
-                                _showVideoControls = false;
-                              });
-                              _controlsHideTimer?.cancel();
-                            },
-                            child: GestureDetector(
-                              onTap: _showControlsTemporarily,
-                              child: Stack(
-                                children: [
-                                  Positioned.fill(
-                                    child: Video(
-                                      controller: controller,
-                                      //controls: NoVideoControls,
-                                    ),
-                                  ),
-                                  // Print overlay hidden for now.
-                                  Positioned.fill(
-                                    child: IgnorePointer(
-                                      ignoring: !_showVideoControls,
-                                      child: AnimatedOpacity(
-                                        opacity: _showVideoControls ? 1 : 0,
-                                        duration:
-                                            const Duration(milliseconds: 150),
-                                        child: Container(
-                                          color: Colors.black.withOpacity(0.2),
-                                          child: Center(
-                                            child: DecoratedBox(
-                                              decoration: BoxDecoration(
-                                                color: Colors.black.withOpacity(
-                                                  0.55,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(48),
-                                              ),
-                                              child: IconButton(
-                                                iconSize: 56,
-                                                color: Colors.white,
-                                                icon: Icon(
-                                                  _isPlaying
-                                                      ? Icons.pause
-                                                      : Icons.play_arrow,
-                                                ),
-                                                onPressed: () {
-                                                  if (_isPlaying) {
-                                                    player.pause();
-                                                  } else {
-                                                    player.play();
-                                                  }
-                                                  _showControlsTemporarily();
-                                                },
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (_bufferFraction != null || _buffering)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            child: LinearProgressIndicator(
-                              value: _bufferFraction, // null => indeterminate
-                              minHeight: 4,
-                            ),
-                          ),
-                        if (_lastPrintStatus != null)
-                          Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: _MetricsPanel(ps: _lastPrintStatus!),
-                          ),
-                      ],
-                    )
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.videocam_off,
-                          size: 64,
-                          color: Colors.grey,
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'No active stream',
-                          style: TextStyle(fontSize: 18, color: Colors.grey),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _openSettings,
-                          child: const Text('Configure Stream'),
-                        ),
-                        ElevatedButton(
-                          onPressed: () async {
-                            final streamUrl =
-                                await PrinterStreamManager.getStreamUrl();
-                            if (streamUrl != null) {
-                              _onConnect(streamUrl);
-                            } else {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Please configure printer settings first',
-                                    ),
-                                  ),
-                                );
-                              }
-                            }
-                          },
-                          child: const Text('Connect to Printer'),
-                        ),
-                      ],
-                    ),
-            ),
-          ),
-          // MQTT status line intentionally hidden for now.
-
-          // Stream controls
-          if (isStreaming) ...[
-            const Divider(),
-            Padding(
-              padding: const EdgeInsets.all(16),
+    return FramelessWindowResizeFrame(
+      child: Scaffold(
+        appBar: AppBar(
+          toolbarHeight: toolbarHeight,
+          title: WindowDragArea(
+            child: SizedBox(
+              width: double.infinity,
               child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 8,
-                    alignment: WrapAlignment.center,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _stopStream,
-                        icon: const Icon(Icons.stop),
-                        label: const Text('Stop'),
+                  const Text(AppStrings.appDisplayName),
+                  if (titleLines.isNotEmpty)
+                    ...titleLines.map(
+                      (line) => Text(
+                        line,
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-                      ElevatedButton.icon(
-                        onPressed: _takeScreenshot,
-                        icon: const Icon(Icons.camera_alt),
-                        label: const Text(''),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: _openSettings,
-                        icon: const Icon(Icons.settings),
-                        label: const Text('Settings'),
-                      ),
-                      if (_lightControlsEnabled)
-                        OutlinedButton.icon(
-                          onPressed: _toggleChamberLight,
-                          icon: Icon(
-                            _chamberLightOn == true
-                                ? Icons.lightbulb
-                                : Icons.lightbulb_outline,
-                          ),
-                          label: Text(_lightStatusLabel()),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (_lightControlsEnabled)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text('Auto light while printing'),
-                        Switch(
-                          value: _autoLightWhilePrinting,
-                          onChanged: (value) {
-                            setState(() => _autoLightWhilePrinting = value);
-                            final ps = _lastPrintStatus;
-                            if (value && ps != null) {
-                              _handleAutoLight(ps, force: true);
-                            }
-                          },
-                        ),
-                      ],
                     ),
                 ],
               ),
             ),
+          ),
+          actions: [
+            if (_mqttControlsEnabled)
+              IconButton(
+                tooltip: 'MQTT Controls',
+                icon: const Icon(Icons.tune),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const MqttControlPage()),
+                  );
+                },
+              ),
+            if (FeatureFlags.ftpBrowserEnabled)
+              IconButton(
+                tooltip: 'FTP Browser',
+                icon: const Icon(Icons.folder_open),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const FtpBrowserPage()),
+                  );
+                },
+              ),
+            IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: _openSettings,
+            ),
+            const WindowControlButtons(),
           ],
-        ],
+        ),
+        body: isStreaming
+            ? _buildStreamingBody(context, compactLayout: compactLandscape)
+            : _buildDisconnectedBody(),
       ),
     );
   }
@@ -974,8 +1403,25 @@ String? _formatJobIds(BambuPrintStatus? ps) {
   return job.isNotEmpty ? 'Job ID: $job' : 'Task ID: $task';
 }
 
+String? _formatPrintFileTitle(BambuPrintStatus? ps) {
+  if (ps == null) return null;
+  final subtask = ps.subtaskName?.trim();
+  if (subtask != null && subtask.isNotEmpty) {
+    return subtask;
+  }
+  final gcodeFile = ps.gcodeFile?.trim();
+  if (gcodeFile == null || gcodeFile.isEmpty) {
+    return null;
+  }
+  return path.basename(gcodeFile);
+}
+
 List<String> _buildTitleLines(BambuPrintStatus? ps) {
   final lines = <String>[];
+  final printFile = _formatPrintFileTitle(ps);
+  if (printFile != null) {
+    lines.add('Print: $printFile');
+  }
   final nozzleInfo = _formatNozzleInfo(ps);
   if (nozzleInfo != null) {
     lines.add('Nozzle: $nozzleInfo');
@@ -1024,7 +1470,10 @@ BambuPrintStatus _mergePrintStatus(
     nozzleTarget: pickDouble(incoming.nozzleTarget, previous.nozzleTarget),
     chamberTemp: pickDouble(incoming.chamberTemp, previous.chamberTemp),
     nozzleType: pickString(incoming.nozzleType, previous.nozzleType),
-    nozzleDiameter: pickString(incoming.nozzleDiameter, previous.nozzleDiameter),
+    nozzleDiameter: pickString(
+      incoming.nozzleDiameter,
+      previous.nozzleDiameter,
+    ),
     speedLevel: pickInt(incoming.speedLevel, previous.speedLevel),
     speedMag: pickInt(incoming.speedMag, previous.speedMag),
     subtaskName: pickString(incoming.subtaskName, previous.subtaskName),
@@ -1060,10 +1509,7 @@ Map<String, dynamic> _stringKeyMap(Map map) {
 List<Map<String, dynamic>> _extractLightsReport(Map<String, dynamic> map) {
   final lightsReport = map['lights_report'];
   if (lightsReport is List) {
-    return lightsReport
-        .whereType<Map>()
-        .map((e) => _stringKeyMap(e))
-        .toList();
+    return lightsReport.whereType<Map>().map((e) => _stringKeyMap(e)).toList();
   }
   return const [];
 }
@@ -1095,10 +1541,7 @@ String? _detectLightNode(Map<String, dynamic> json) {
   return null;
 }
 
-bool? _extractLightStateForNode(
-  Map<String, dynamic> json,
-  String node,
-) {
+bool? _extractLightStateForNode(Map<String, dynamic> json, String node) {
   final candidates = <Map<String, dynamic>>[];
   final system = json['system'];
   if (system is Map) {
@@ -1225,8 +1668,7 @@ class _MetricsPanel extends StatelessWidget {
         item(Icons.wifi, fmtRssi(ps.wifiSignal)),
       if (ps.layer != null || ps.totalLayers != null)
         item(Icons.layers, fmtLayer(ps.layer, ps.totalLayers)),
-      if (ps.percent != null)
-        item(Icons.percent, '${ps.percent}%'),
+      if (ps.percent != null) item(Icons.percent, '${ps.percent}%'),
       if (ps.remainingMinutes != null)
         item(Icons.timelapse, '${ps.remainingMinutes}m'),
     ];
@@ -1238,11 +1680,7 @@ class _MetricsPanel extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Wrap(
-          spacing: 12,
-          runSpacing: 6,
-          children: items,
-        ),
+        child: Wrap(spacing: 12, runSpacing: 6, children: items),
       ),
     );
   }
@@ -1254,12 +1692,7 @@ class _MetricItem {
   final bool show;
   final IconData? icon;
 
-  const _MetricItem(
-    this.label,
-    this.value, {
-    this.show = true,
-    this.icon,
-  });
+  const _MetricItem(this.label, this.value, {this.show = true, this.icon});
 }
 
 class _PrintOverlayStatus extends StatelessWidget {
@@ -1312,10 +1745,9 @@ class _PrintOverlayStatus extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         child: Text(
           parts.join(' • '),
-          style: Theme.of(context)
-              .textTheme
-              .labelMedium
-              ?.copyWith(color: Colors.white, fontSize: 13),
+          style: Theme.of(
+            context,
+          ).textTheme.labelMedium?.copyWith(color: Colors.white, fontSize: 13),
         ),
       ),
     );

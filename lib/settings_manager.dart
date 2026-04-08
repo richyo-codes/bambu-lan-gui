@@ -1,8 +1,7 @@
 import 'dart:convert';
 
 import 'printer_url_formats.dart';
-import 'settings_storage.dart'
-    if (dart.library.io) 'settings_storage_io.dart';
+import 'settings_storage.dart' if (dart.library.io) 'settings_storage_io.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AppSettings {
@@ -14,6 +13,8 @@ class AppSettings {
   bool autoConnect;
   bool mqttControlsEnabled;
   bool lightControlsEnabled;
+  bool hardwareAccelerationEnabled;
+  bool linuxUseSystemWindowDecorations;
 
   AppSettings({
     required this.specialCode,
@@ -24,31 +25,40 @@ class AppSettings {
     this.autoConnect = false,
     this.mqttControlsEnabled = false,
     this.lightControlsEnabled = false,
+    this.hardwareAccelerationEnabled = true,
+    this.linuxUseSystemWindowDecorations = false,
   });
 
   // JSON serialization
   Map<String, dynamic> toJson() => {
-        'specialCode': specialCode,
-        'printerIp': printerIp,
-        'serialNumber': serialNumber,
-        'selectedFormat': selectedFormat.storageKey,
-        'customUrl': customUrl,
-        'autoConnect': autoConnect,
-        'mqttControlsEnabled': mqttControlsEnabled,
-        'lightControlsEnabled': lightControlsEnabled,
-      };
+    'specialCode': specialCode,
+    'printerIp': printerIp,
+    'serialNumber': serialNumber,
+    'selectedFormat': selectedFormat.storageKey,
+    'customUrl': customUrl,
+    'autoConnect': autoConnect,
+    'mqttControlsEnabled': mqttControlsEnabled,
+    'lightControlsEnabled': lightControlsEnabled,
+    'hardwareAccelerationEnabled': hardwareAccelerationEnabled,
+    'linuxUseSystemWindowDecorations': linuxUseSystemWindowDecorations,
+  };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     return AppSettings(
       specialCode: (json['specialCode'] ?? '') as String,
       printerIp: (json['printerIp'] ?? '') as String,
       serialNumber: (json['serialNumber'] ?? '') as String,
-      selectedFormat:
-          PrinterUrlTypeX.parse(json['selectedFormat'] as String? ?? 'Bambu X1C'),
+      selectedFormat: PrinterUrlTypeX.parse(
+        json['selectedFormat'] as String? ?? 'Bambu X1C',
+      ),
       customUrl: (json['customUrl'] ?? '') as String,
       autoConnect: (json['autoConnect'] ?? false) as bool,
       mqttControlsEnabled: (json['mqttControlsEnabled'] ?? false) as bool,
       lightControlsEnabled: (json['lightControlsEnabled'] ?? false) as bool,
+      hardwareAccelerationEnabled:
+          (json['hardwareAccelerationEnabled'] ?? true) as bool,
+      linuxUseSystemWindowDecorations:
+          (json['linuxUseSystemWindowDecorations'] ?? false) as bool,
     );
   }
 
@@ -57,14 +67,18 @@ class AppSettings {
       specialCode: prefs.getString('rtsp_specialcode') ?? '',
       printerIp: prefs.getString('rtsp_printerip') ?? '',
       serialNumber: prefs.getString('rtsp_serial_number') ?? '',
-      selectedFormat:
-          PrinterUrlTypeX.parse(prefs.getString('rtsp_format') ?? 'Bambu X1C'),
+      selectedFormat: PrinterUrlTypeX.parse(
+        prefs.getString('rtsp_format') ?? 'Bambu X1C',
+      ),
       customUrl: prefs.getString('rtsp_custom_url') ?? '',
       autoConnect: prefs.getBool('rtsp_auto_connect') ?? false,
-      mqttControlsEnabled:
-          prefs.getBool('rtsp_mqtt_controls_enabled') ?? false,
+      mqttControlsEnabled: prefs.getBool('rtsp_mqtt_controls_enabled') ?? false,
       lightControlsEnabled:
           prefs.getBool('rtsp_light_controls_enabled') ?? false,
+      hardwareAccelerationEnabled:
+          prefs.getBool('rtsp_hardware_acceleration_enabled') ?? true,
+      linuxUseSystemWindowDecorations:
+          prefs.getBool('rtsp_linux_use_system_window_decorations') ?? false,
     );
   }
 
@@ -76,13 +90,15 @@ class AppSettings {
     await prefs.setString('rtsp_format', selectedFormat.storageKey);
     await prefs.setString('rtsp_custom_url', customUrl);
     await prefs.setBool('rtsp_auto_connect', autoConnect);
+    await prefs.setBool('rtsp_mqtt_controls_enabled', mqttControlsEnabled);
+    await prefs.setBool('rtsp_light_controls_enabled', lightControlsEnabled);
     await prefs.setBool(
-      'rtsp_mqtt_controls_enabled',
-      mqttControlsEnabled,
+      'rtsp_hardware_acceleration_enabled',
+      hardwareAccelerationEnabled,
     );
     await prefs.setBool(
-      'rtsp_light_controls_enabled',
-      lightControlsEnabled,
+      'rtsp_linux_use_system_window_decorations',
+      linuxUseSystemWindowDecorations,
     );
   }
 }
@@ -90,12 +106,14 @@ class AppSettings {
 class SettingsManager {
   static AppSettings? _cachedSettings;
 
-  static const _jsonFileName = 'rtsp_settings.json';
+  static const _jsonFileName = 'bambu_lan_settings.json';
+  static const _legacyJsonFileName = 'rtsp_settings.json';
 
   static Future<void> _saveToJsonFile(AppSettings settings) async {
     try {
-      final jsonString =
-          const JsonEncoder.withIndent('  ').convert(settings.toJson());
+      final jsonString = const JsonEncoder.withIndent(
+        '  ',
+      ).convert(settings.toJson());
       await writeSettingsFile(_jsonFileName, jsonString);
     } catch (_) {
       // Silently ignore file I/O errors to avoid disrupting app flow.
@@ -104,10 +122,17 @@ class SettingsManager {
 
   static Future<AppSettings?> _loadFromJsonFile() async {
     try {
-      final jsonString = await readSettingsFile(_jsonFileName);
-      if (jsonString == null) return null;
+      var jsonString = await readSettingsFile(_jsonFileName);
+      if (jsonString == null) {
+        // Backward-compatible fallback for old app versions.
+        jsonString = await readSettingsFile(_legacyJsonFileName);
+        if (jsonString == null) return null;
+      }
       final data = jsonDecode(jsonString) as Map<String, dynamic>;
-      return AppSettings.fromJson(data);
+      final settings = AppSettings.fromJson(data);
+      // Ensure legacy reads migrate to the new file name.
+      await _saveToJsonFile(settings);
+      return settings;
     } catch (_) {
       return null;
     }
@@ -134,12 +159,17 @@ class SettingsManager {
     bool? autoConnect,
     bool? mqttControlsEnabled,
     bool? lightControlsEnabled,
+    bool? hardwareAccelerationEnabled,
+    bool? linuxUseSystemWindowDecorations,
   }) {
     final next = AppSettings(
-      specialCode: specialCode?.isNotEmpty == true ? specialCode! : base.specialCode,
+      specialCode: specialCode?.isNotEmpty == true
+          ? specialCode!
+          : base.specialCode,
       printerIp: printerIp?.isNotEmpty == true ? printerIp! : base.printerIp,
-      serialNumber:
-          serialNumber?.isNotEmpty == true ? serialNumber! : base.serialNumber,
+      serialNumber: serialNumber?.isNotEmpty == true
+          ? serialNumber!
+          : base.serialNumber,
       selectedFormat: selectedFormat != null && selectedFormat.trim().isNotEmpty
           ? PrinterUrlTypeX.parse(selectedFormat)
           : base.selectedFormat,
@@ -147,6 +177,11 @@ class SettingsManager {
       autoConnect: autoConnect ?? base.autoConnect,
       mqttControlsEnabled: mqttControlsEnabled ?? base.mqttControlsEnabled,
       lightControlsEnabled: lightControlsEnabled ?? base.lightControlsEnabled,
+      hardwareAccelerationEnabled:
+          hardwareAccelerationEnabled ?? base.hardwareAccelerationEnabled,
+      linuxUseSystemWindowDecorations:
+          linuxUseSystemWindowDecorations ??
+          base.linuxUseSystemWindowDecorations,
     );
     if (customUrl != null && customUrl.trim().isNotEmpty) {
       return AppSettings(
@@ -155,6 +190,12 @@ class SettingsManager {
         serialNumber: next.serialNumber,
         selectedFormat: PrinterUrlType.custom,
         customUrl: next.customUrl,
+        autoConnect: next.autoConnect,
+        mqttControlsEnabled: next.mqttControlsEnabled,
+        lightControlsEnabled: next.lightControlsEnabled,
+        hardwareAccelerationEnabled: next.hardwareAccelerationEnabled,
+        linuxUseSystemWindowDecorations:
+            next.linuxUseSystemWindowDecorations,
       );
     }
     return next;
@@ -170,6 +211,8 @@ class SettingsManager {
     bool? overrideAutoConnect,
     bool? overrideMqttControlsEnabled,
     bool? overrideLightControlsEnabled,
+    bool? overrideHardwareAccelerationEnabled,
+    bool? overrideLinuxUseSystemWindowDecorations,
   }) async {
     if (_cachedSettings != null) return _cachedSettings!;
 
@@ -188,6 +231,9 @@ class SettingsManager {
         autoConnect: overrideAutoConnect,
         mqttControlsEnabled: overrideMqttControlsEnabled,
         lightControlsEnabled: overrideLightControlsEnabled,
+        hardwareAccelerationEnabled: overrideHardwareAccelerationEnabled,
+        linuxUseSystemWindowDecorations:
+            overrideLinuxUseSystemWindowDecorations,
       );
       // Keep SharedPreferences in sync
       await _cachedSettings!.saveToPrefs();
@@ -205,6 +251,9 @@ class SettingsManager {
       autoConnect: overrideAutoConnect,
       mqttControlsEnabled: overrideMqttControlsEnabled,
       lightControlsEnabled: overrideLightControlsEnabled,
+      hardwareAccelerationEnabled: overrideHardwareAccelerationEnabled,
+      linuxUseSystemWindowDecorations:
+          overrideLinuxUseSystemWindowDecorations,
     );
     return _cachedSettings!;
   }
