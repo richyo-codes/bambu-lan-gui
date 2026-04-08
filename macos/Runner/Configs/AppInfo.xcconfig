@@ -8,7 +8,7 @@
 PRODUCT_NAME = printer_lan
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.rnd.rndSerialConsole
+PRODUCT_BUNDLE_IDENTIFIER = com.rnd.print_lan
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2025 com.rnd. All rights reserved.

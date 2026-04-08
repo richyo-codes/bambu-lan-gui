@@ -1,16 +1,20 @@
 
 flutter_launcher_icons:
+  # Single icon source for all platforms:
+  # assets/icons/icon_printer_home_shield.svg
+  # Exported render used by flutter_launcher_icons:
+  # assets/icons/renders/printer_home_shield.png
 
   android: true
   ios: true
-  image_path: assets/icons/renders/printer_home_shield.png # Export this PNG from icon_printer_home_shield.svg at 1024x1024
-  adaptive_icon_foreground:  assets/icons/renders/printer_home_shield.png
-  adaptive_icon_background: '#0E1116'
+  image_path: assets/icons/renders/printer_home_shield.png
+  adaptive_icon_foreground: assets/icons/renders/printer_home_shield.png
+  adaptive_icon_background: '#0F3D91'
   web:
     generate: true
     image_path: assets/icons/renders/printer_home_shield.png
-    background_color: '#0E1116'
-    theme_color: '#0E1116'
+    background_color: '#0F3D91'
+    theme_color: '#0F3D91'
   macos:
     generate: true
     image_path: assets/icons/renders/printer_home_shield.png
@@ -21,57 +25,3 @@ flutter_launcher_icons:
   linux:
     generate: true
     image_path: assets/icons/renders/printer_home_shield.png
-
-
-  # Generate per-flavor icons. Run with:
-  #   flutter pub run flutter_launcher_icons -f pubspec.yaml --flavor <flavor>
-  # Example: --flavor filament | home | lan | stream | cube
-  flavors:
-    filament:
-      image_path: assets/icons/renders/filament_spool.png
-      android: true
-      ios: true
-      web: true
-      macos: true
-      windows: true
-      linux: true
-    home:
-      image_path: assets/icons/renders/printer_home.png
-      android: true
-      ios: true
-      web: true
-      macos: true
-      windows: true
-      linux: true
-    lan:
-      image_path: assets/icons/renders/lan_cable.png
-      android: true
-      ios: true
-      web: true
-      macos: true
-      windows: true
-      linux: true
-    stream:
-      image_path: assets/icons/renders/stream_cam.png
-      android: true
-      ios: true
-      web: true
-      macos: true
-      windows: true
-      linux: true
-    cube:
-      image_path: assets/icons/renders/printer_cube.png
-      android: true
-      ios: true
-      web: true
-      macos: true
-      windows: true
-      linux: true
-    lan_shield:
-      image_path: assets/icons/renders/lan_shield.png
-      android: true
-      ios: true
-      web: true
-      macos: true
-      windows: true
-      linux: true
