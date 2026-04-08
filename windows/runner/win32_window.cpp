@@ -2,6 +2,7 @@
 
 #include <dwmapi.h>
 #include <flutter_windows.h>
+#include <winternl.h>
 
 #include "resource.h"
 
@@ -11,9 +12,27 @@ namespace {
 ///
 /// Redefined in case the developer's machine has a Windows SDK older than
 /// version 10.0.22000.0.
-/// See: https://docs.microsoft.com/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute
+/// See:
+/// https://docs.microsoft.com/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+
+/// Window attribute that controls top-level corner preference on Windows 11.
+/// Redefined for older SDKs.
+#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
+#define DWMWA_WINDOW_CORNER_PREFERENCE 33
+#endif
+
+/// Corner preference enum for DWMWA_WINDOW_CORNER_PREFERENCE.
+/// Redefined for older SDKs.
+#ifndef DWM_WINDOW_CORNER_PREFERENCE
+enum DWM_WINDOW_CORNER_PREFERENCE {
+  DWMWCP_DEFAULT = 0,
+  DWMWCP_DONOTROUND = 1,
+  DWMWCP_ROUND = 2,
+  DWMWCP_ROUNDSMALL = 3
+};
 #endif
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
@@ -23,8 +42,9 @@ constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 /// A value of 0 indicates apps should use dark mode. A non-zero or missing
 /// value indicates apps should use light mode.
 constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
-  L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+constexpr const wchar_t kGetPreferredBrightnessRegValue[] =
+    L"AppsUseLightTheme";
 
 // Use a frameless window; Flutter provides a draggable header.
 constexpr DWORD kWindowStyle = WS_OVERLAPPEDWINDOW & ~WS_CAPTION;
@@ -48,7 +68,7 @@ void EnableFullDpiSupportIfAvailable(HWND hwnd) {
     return;
   }
   auto enable_non_client_dpi_scaling =
-      reinterpret_cast<EnableNonClientDpiScaling*>(
+      reinterpret_cast<EnableNonClientDpiScaling *>(
           GetProcAddress(user32_module, "EnableNonClientDpiScaling"));
   if (enable_non_client_dpi_scaling != nullptr) {
     enable_non_client_dpi_scaling(hwnd);
@@ -56,15 +76,59 @@ void EnableFullDpiSupportIfAvailable(HWND hwnd) {
   FreeLibrary(user32_module);
 }
 
+void ApplyFramelessStyle(HWND hwnd) {
+  LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
+  style &= ~static_cast<LONG_PTR>(WS_CAPTION);
+  SetWindowLongPtr(hwnd, GWL_STYLE, style);
+
+  // Recompute non-client metrics after style change.
+  SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
+                   SWP_FRAMECHANGED);
+}
+
+bool IsWindows11OrGreater() {
+  using RtlGetVersionPtr = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
+  HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  if (!ntdll) {
+    return false;
+  }
+  auto rtl_get_version =
+      reinterpret_cast<RtlGetVersionPtr>(GetProcAddress(ntdll, "RtlGetVersion"));
+  if (!rtl_get_version) {
+    return false;
+  }
+
+  RTL_OSVERSIONINFOW version_info{};
+  version_info.dwOSVersionInfoSize = sizeof(version_info);
+  if (rtl_get_version(&version_info) != 0) {
+    return false;
+  }
+
+  if (version_info.dwMajorVersion > 10) {
+    return true;
+  }
+  return version_info.dwMajorVersion == 10 && version_info.dwBuildNumber >= 22000;
+}
+
+void ApplyRoundedCorners(HWND hwnd) {
+  if (!IsWindows11OrGreater()) {
+    return;
+  }
+  const DWM_WINDOW_CORNER_PREFERENCE corner_preference = DWMWCP_ROUND;
+  (void)DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE,
+                              &corner_preference, sizeof(corner_preference));
+}
+
 }  // namespace
 
 // Manages the Win32Window's window class registration.
 class WindowClassRegistrar {
- public:
+public:
   ~WindowClassRegistrar() = default;
 
   // Returns the singleton registrar instance.
-  static WindowClassRegistrar* GetInstance() {
+  static WindowClassRegistrar *GetInstance() {
     if (!instance_) {
       instance_ = new WindowClassRegistrar();
     }
@@ -73,23 +137,23 @@ class WindowClassRegistrar {
 
   // Returns the name of the window class, registering the class if it hasn't
   // previously been registered.
-  const wchar_t* GetWindowClass();
+  const wchar_t *GetWindowClass();
 
   // Unregisters the window class. Should only be called if there are no
   // instances of the window.
   void UnregisterWindowClass();
 
- private:
+private:
   WindowClassRegistrar() = default;
 
-  static WindowClassRegistrar* instance_;
+  static WindowClassRegistrar *instance_;
 
   bool class_registered_ = false;
 };
 
-WindowClassRegistrar* WindowClassRegistrar::instance_ = nullptr;
+WindowClassRegistrar *WindowClassRegistrar::instance_ = nullptr;
 
-const wchar_t* WindowClassRegistrar::GetWindowClass() {
+const wchar_t *WindowClassRegistrar::GetWindowClass() {
   if (!class_registered_) {
     WNDCLASS window_class{};
     window_class.hCursor = LoadCursor(nullptr, IDC_ARROW);
@@ -114,21 +178,18 @@ void WindowClassRegistrar::UnregisterWindowClass() {
   class_registered_ = false;
 }
 
-Win32Window::Win32Window() {
-  ++g_active_window_count;
-}
+Win32Window::Win32Window() { ++g_active_window_count; }
 
 Win32Window::~Win32Window() {
   --g_active_window_count;
   Destroy();
 }
 
-bool Win32Window::Create(const std::wstring& title,
-                         const Point& origin,
-                         const Size& size) {
+bool Win32Window::Create(const std::wstring &title, const Point &origin,
+                         const Size &size) {
   Destroy();
 
-  const wchar_t* window_class =
+  const wchar_t *window_class =
       WindowClassRegistrar::GetInstance()->GetWindowClass();
 
   const POINT target_point = {static_cast<LONG>(origin.x),
@@ -138,38 +199,37 @@ bool Win32Window::Create(const std::wstring& title,
   double scale_factor = dpi / 96.0;
 
   HWND window = CreateWindow(
-      window_class, title.c_str(), kWindowStyle,
-      Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
-      nullptr, nullptr, GetModuleHandle(nullptr), this);
+      window_class, title.c_str(), kWindowStyle, Scale(origin.x, scale_factor),
+      Scale(origin.y, scale_factor), Scale(size.width, scale_factor),
+      Scale(size.height, scale_factor), nullptr, nullptr,
+      GetModuleHandle(nullptr), this);
 
   if (!window) {
     return false;
   }
 
+  ApplyFramelessStyle(window);
+  ApplyRoundedCorners(window);
   UpdateTheme(window);
 
   return OnCreate();
 }
 
-bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
-}
+bool Win32Window::Show() { return ShowWindow(window_handle_, SW_SHOWNORMAL); }
 
 // static
-LRESULT CALLBACK Win32Window::WndProc(HWND const window,
-                                      UINT const message,
+LRESULT CALLBACK Win32Window::WndProc(HWND const window, UINT const message,
                                       WPARAM const wparam,
                                       LPARAM const lparam) noexcept {
   if (message == WM_NCCREATE) {
-    auto window_struct = reinterpret_cast<CREATESTRUCT*>(lparam);
+    auto window_struct = reinterpret_cast<CREATESTRUCT *>(lparam);
     SetWindowLongPtr(window, GWLP_USERDATA,
                      reinterpret_cast<LONG_PTR>(window_struct->lpCreateParams));
 
-    auto that = static_cast<Win32Window*>(window_struct->lpCreateParams);
+    auto that = static_cast<Win32Window *>(window_struct->lpCreateParams);
     EnableFullDpiSupportIfAvailable(window);
     that->window_handle_ = window;
-  } else if (Win32Window* that = GetThisFromHandle(window)) {
+  } else if (Win32Window *that = GetThisFromHandle(window)) {
     return that->MessageHandler(window, message, wparam, lparam);
   }
 
@@ -177,48 +237,46 @@ LRESULT CALLBACK Win32Window::WndProc(HWND const window,
 }
 
 LRESULT
-Win32Window::MessageHandler(HWND hwnd,
-                            UINT const message,
-                            WPARAM const wparam,
+Win32Window::MessageHandler(HWND hwnd, UINT const message, WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
-    case WM_DESTROY:
-      window_handle_ = nullptr;
-      Destroy();
-      if (quit_on_close_) {
-        PostQuitMessage(0);
-      }
-      return 0;
-
-    case WM_DPICHANGED: {
-      auto newRectSize = reinterpret_cast<RECT*>(lparam);
-      LONG newWidth = newRectSize->right - newRectSize->left;
-      LONG newHeight = newRectSize->bottom - newRectSize->top;
-
-      SetWindowPos(hwnd, nullptr, newRectSize->left, newRectSize->top, newWidth,
-                   newHeight, SWP_NOZORDER | SWP_NOACTIVATE);
-
-      return 0;
+  case WM_DESTROY:
+    window_handle_ = nullptr;
+    Destroy();
+    if (quit_on_close_) {
+      PostQuitMessage(0);
     }
-    case WM_SIZE: {
-      RECT rect = GetClientArea();
-      if (child_content_ != nullptr) {
-        // Size and position the child window.
-        MoveWindow(child_content_, rect.left, rect.top, rect.right - rect.left,
-                   rect.bottom - rect.top, TRUE);
-      }
-      return 0;
+    return 0;
+
+  case WM_DPICHANGED: {
+    auto newRectSize = reinterpret_cast<RECT *>(lparam);
+    LONG newWidth = newRectSize->right - newRectSize->left;
+    LONG newHeight = newRectSize->bottom - newRectSize->top;
+
+    SetWindowPos(hwnd, nullptr, newRectSize->left, newRectSize->top, newWidth,
+                 newHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+
+    return 0;
+  }
+  case WM_SIZE: {
+    RECT rect = GetClientArea();
+    if (child_content_ != nullptr) {
+      // Size and position the child window.
+      MoveWindow(child_content_, rect.left, rect.top, rect.right - rect.left,
+                 rect.bottom - rect.top, TRUE);
     }
+    return 0;
+  }
 
-    case WM_ACTIVATE:
-      if (child_content_ != nullptr) {
-        SetFocus(child_content_);
-      }
-      return 0;
+  case WM_ACTIVATE:
+    if (child_content_ != nullptr) {
+      SetFocus(child_content_);
+    }
+    return 0;
 
-    case WM_DWMCOLORIZATIONCOLORCHANGED:
-      UpdateTheme(hwnd);
-      return 0;
+  case WM_DWMCOLORIZATIONCOLORCHANGED:
+    UpdateTheme(hwnd);
+    return 0;
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);
@@ -236,8 +294,8 @@ void Win32Window::Destroy() {
   }
 }
 
-Win32Window* Win32Window::GetThisFromHandle(HWND const window) noexcept {
-  return reinterpret_cast<Win32Window*>(
+Win32Window *Win32Window::GetThisFromHandle(HWND const window) noexcept {
+  return reinterpret_cast<Win32Window *>(
       GetWindowLongPtr(window, GWLP_USERDATA));
 }
 
@@ -258,9 +316,7 @@ RECT Win32Window::GetClientArea() {
   return frame;
 }
 
-HWND Win32Window::GetHandle() {
-  return window_handle_;
-}
+HWND Win32Window::GetHandle() { return window_handle_; }
 
 void Win32Window::SetQuitOnClose(bool quit_on_close) {
   quit_on_close_ = quit_on_close;
@@ -278,14 +334,18 @@ void Win32Window::OnDestroy() {
 void Win32Window::UpdateTheme(HWND const window) {
   DWORD light_mode;
   DWORD light_mode_size = sizeof(light_mode);
-  LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
-                               kGetPreferredBrightnessRegValue,
-                               RRF_RT_REG_DWORD, nullptr, &light_mode,
-                               &light_mode_size);
+  LSTATUS result =
+      RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
+                  kGetPreferredBrightnessRegValue, RRF_RT_REG_DWORD, nullptr,
+                  &light_mode, &light_mode_size);
 
   if (result == ERROR_SUCCESS) {
     BOOL enable_dark_mode = light_mode == 0;
     DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
                           &enable_dark_mode, sizeof(enable_dark_mode));
   }
+
+  const DWM_WINDOW_CORNER_PREFERENCE corner_preference = DWMWCP_ROUND;
+  DwmSetWindowAttribute(window, DWMWA_WINDOW_CORNER_PREFERENCE,
+                        &corner_preference, sizeof(corner_preference));
 }

@@ -52,8 +52,8 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 
 # System-level dependencies.
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
-#add_compile_definitions(FLUTTER_LINUX_GTK4)
+pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk4)
+add_compile_definitions(FLUTTER_LINUX_GTK4)
 
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
