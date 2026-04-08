@@ -22,7 +22,7 @@ endfunction()
 # === Flutter Library ===
 # System-level dependencies.
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
+pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk4)
 pkg_check_modules(GLIB REQUIRED IMPORTED_TARGET glib-2.0)
 pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
 
@@ -58,7 +58,7 @@ list(APPEND FLUTTER_LIBRARY_HEADERS
 )
 list_prepend(FLUTTER_LIBRARY_HEADERS "${EPHEMERAL_DIR}/flutter_linux/")
 add_library(flutter INTERFACE)
-#target_compile_definitions(flutter INTERFACE FLUTTER_LINUX_GTK4)
+target_compile_definitions(flutter INTERFACE FLUTTER_LINUX_GTK4)
 target_include_directories(flutter INTERFACE
   "${EPHEMERAL_DIR}"
 )

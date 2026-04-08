@@ -4,7 +4,59 @@
 
 #include "flutter/generated_plugin_registrant.h"
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
+namespace {
+
+int ResizeEdgeToHitTest(const std::string &edge) {
+  if (edge == "top") {
+    return HTTOP;
+  }
+  if (edge == "topRight") {
+    return HTTOPRIGHT;
+  }
+  if (edge == "right") {
+    return HTRIGHT;
+  }
+  if (edge == "bottomRight") {
+    return HTBOTTOMRIGHT;
+  }
+  if (edge == "bottom") {
+    return HTBOTTOM;
+  }
+  if (edge == "bottomLeft") {
+    return HTBOTTOMLEFT;
+  }
+  if (edge == "left") {
+    return HTLEFT;
+  }
+  if (edge == "topLeft") {
+    return HTTOPLEFT;
+  }
+  return HTBOTTOMRIGHT;
+}
+
+int ParseResizeHitTest(const flutter::EncodableValue *arguments,
+                       int fallback = HTBOTTOMRIGHT) {
+  if (arguments == nullptr) {
+    return fallback;
+  }
+  const auto *map = std::get_if<flutter::EncodableMap>(arguments);
+  if (map == nullptr) {
+    return fallback;
+  }
+  const auto edge_it = map->find(flutter::EncodableValue("edge"));
+  if (edge_it == map->end()) {
+    return fallback;
+  }
+  const auto *edge = std::get_if<std::string>(&edge_it->second);
+  if (edge == nullptr) {
+    return fallback;
+  }
+  return ResizeEdgeToHitTest(*edge);
+}
+
+} // namespace
+
+FlutterWindow::FlutterWindow(const flutter::DartProject &project)
     : project_(project) {}
 
 FlutterWindow::~FlutterWindow() {}
@@ -32,13 +84,25 @@ bool FlutterWindow::OnCreate() {
           flutter_controller_->engine()->messenger(), "app/window_drag",
           &flutter::StandardMethodCodec::GetInstance());
   window_drag_channel_->SetMethodCallHandler(
-      [this](const auto& call, auto result) {
-        const std::string& method = call.method_name();
+      [this](const auto &call, auto result) {
+        const std::string &method = call.method_name();
         HWND handle = GetHandle();
         if (method == "startDrag") {
           if (handle != nullptr) {
             ReleaseCapture();
             SendMessage(handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+          }
+          result->Success();
+          return;
+        }
+        if (method == "startResize") {
+          if (handle != nullptr) {
+            const int hit_test = ParseResizeHitTest(call.arguments());
+            POINT cursor{};
+            GetCursorPos(&cursor);
+            ReleaseCapture();
+            SendMessage(handle, WM_NCLBUTTONDOWN, hit_test,
+                        MAKELPARAM(cursor.x, cursor.y));
           }
           result->Success();
           return;
@@ -55,6 +119,11 @@ bool FlutterWindow::OnCreate() {
             ShowWindow(handle, SW_MAXIMIZE);
           }
           result->Success();
+          return;
+        }
+        if (method == "isMaximized") {
+          result->Success(flutter::EncodableValue(handle != nullptr &&
+                                                  IsZoomed(handle) != FALSE));
           return;
         }
         if (method == "toggleMaximize") {
@@ -78,9 +147,27 @@ bool FlutterWindow::OnCreate() {
         result->NotImplemented();
       });
 
-  flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
-  });
+  monitoring_alert_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "app/monitoring_alerts",
+          &flutter::StandardMethodCodec::GetInstance());
+  monitoring_alert_channel_->SetMethodCallHandler(
+      [](const auto &call, auto result) {
+        const std::string &method = call.method_name();
+        if (method == "playAttentionTone") {
+          MessageBeep(MB_ICONHAND);
+          result->Success();
+          return;
+        }
+        if (method == "playSuccessTone") {
+          MessageBeep(MB_ICONASTERISK);
+          result->Success();
+          return;
+        }
+        result->NotImplemented();
+      });
+
+  flutter_controller_->engine()->SetNextFrameCallback([&]() { this->Show(); });
 
   // Flutter can complete the first frame before the "show window" callback is
   // registered. The following call ensures a frame is pending to ensure the
@@ -113,9 +200,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
-    case WM_FONTCHANGE:
-      flutter_controller_->engine()->ReloadSystemFonts();
-      break;
+  case WM_FONTCHANGE:
+    flutter_controller_->engine()->ReloadSystemFonts();
+    break;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
