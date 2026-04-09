@@ -28,10 +28,11 @@ jobs:
           fetch-depth: 0
 
       - name: Ensure Git LFS assets
+        shell: bash
         run: |
           if ! command -v git-lfs >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y git-lfs
+            echo "git-lfs is not available on this Windows runner." >&2
+            exit 1
           fi
           git lfs install --local
           git lfs pull
@@ -55,6 +56,7 @@ jobs:
 
       - name: Git describe
         id: ghd
+        shell: bash
         run: |
           echo "tag=$(git describe --always --tags --dirty)" >> "$GITHUB_OUTPUT"
 
@@ -382,7 +384,14 @@ jobs:
             liblzma-dev libmimalloc-dev libmimalloc2.0 libpulse-dev \
             libssl-dev curl git unzip xz-utils zip libglu1-mesa \
             libstdc++-12-dev libasound2-dev mpv libmpv-dev \
-            software-properties-common lld llvm docker.io
+            software-properties-common lld llvm
+
+          if ! command -v docker >/dev/null 2>&1 && ! command -v podman >/dev/null 2>&1; then
+            sudo apt-get install -y podman
+          fi
+
+          command -v docker >/dev/null 2>&1 && docker --version || true
+          command -v podman >/dev/null 2>&1 && podman --version || true
 
           if [ ! -x /usr/lib/llvm-18/bin/ld.lld ] && command -v ld.lld >/dev/null 2>&1; then
             sudo mkdir -p /usr/lib/llvm-18/bin
