@@ -143,10 +143,11 @@ jobs:
           fetch-depth: 0
 
       - name: Ensure Git LFS assets
+        shell: bash
         run: |
           if ! command -v git-lfs >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y git-lfs
+            echo "git-lfs is not available on this Windows runner." >&2
+            exit 1
           fi
           git lfs install --local
           git lfs pull
@@ -170,6 +171,7 @@ jobs:
 
       - name: Git describe
         id: ghd
+        shell: bash
         run: |
           echo "tag=$(git describe --always --tags --dirty)" >> "$GITHUB_OUTPUT"
 
