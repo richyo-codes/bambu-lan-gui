@@ -1,0 +1,43 @@
+Name:           bambu-buddy
+Version:        @VERSION@
+Release:        @RELEASE@%{?dist}
+Summary:        LAN-only desktop client for Bambu Lab printers
+License:        MIT
+URL:            https://github.com/richyo-codes/bambu-lan-gui
+Source0:        %{name}-%{version}.tar.gz
+
+BuildArch:      x86_64
+AutoReqProv:    no
+
+Requires:       gtk3
+Requires:       mpv-libs
+Requires:       pulseaudio-libs
+Requires:       alsa-lib
+Requires:       openssl-libs
+Requires:       libstdc++
+Requires:       zlib
+
+%description
+Bambu Buddy is a LAN-only desktop client for Bambu Lab printers with MQTT,
+FTP/FTPS, and stream viewing support.
+
+%prep
+%autosetup
+
+%build
+
+%install
+mkdir -p %{buildroot}
+cp -a opt %{buildroot}/
+cp -a usr %{buildroot}/
+
+%files
+/opt/bambu-buddy
+/usr/bin/bambu-buddy
+/usr/share/applications/bambu-buddy.desktop
+/usr/share/icons/hicolor/scalable/apps/bambu-buddy.svg
+/usr/share/licenses/bambu-buddy/LICENSE
+
+%changelog
+* Thu Apr 10 2026 Richard Young <richard@example.com> - @VERSION@-@RELEASE@
+- Native RPM packaging scaffold for Fedora 43+
