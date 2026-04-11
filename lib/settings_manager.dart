@@ -10,6 +10,11 @@ class AppSettings {
   String serialNumber;
   PrinterUrlType selectedFormat;
   String customUrl;
+  String genericRtspUsername;
+  String genericRtspPassword;
+  String genericRtspPath;
+  int genericRtspPort;
+  bool genericRtspSecure;
   bool autoConnect;
   bool mqttControlsEnabled;
   bool lightControlsEnabled;
@@ -22,6 +27,11 @@ class AppSettings {
     required this.serialNumber,
     required this.selectedFormat,
     required this.customUrl,
+    this.genericRtspUsername = '',
+    this.genericRtspPassword = '',
+    this.genericRtspPath = '/stream',
+    this.genericRtspPort = 554,
+    this.genericRtspSecure = false,
     this.autoConnect = false,
     this.mqttControlsEnabled = false,
     this.lightControlsEnabled = false,
@@ -36,6 +46,11 @@ class AppSettings {
     'serialNumber': serialNumber,
     'selectedFormat': selectedFormat.storageKey,
     'customUrl': customUrl,
+    'genericRtspUsername': genericRtspUsername,
+    'genericRtspPassword': genericRtspPassword,
+    'genericRtspPath': genericRtspPath,
+    'genericRtspPort': genericRtspPort,
+    'genericRtspSecure': genericRtspSecure,
     'autoConnect': autoConnect,
     'mqttControlsEnabled': mqttControlsEnabled,
     'lightControlsEnabled': lightControlsEnabled,
@@ -52,6 +67,13 @@ class AppSettings {
         json['selectedFormat'] as String? ?? 'Bambu X1C',
       ),
       customUrl: (json['customUrl'] ?? '') as String,
+      genericRtspUsername: (json['genericRtspUsername'] ?? '') as String,
+      genericRtspPassword: (json['genericRtspPassword'] ?? '') as String,
+      genericRtspPath: (json['genericRtspPath'] ?? '/stream') as String,
+      genericRtspPort: (json['genericRtspPort'] is int)
+          ? json['genericRtspPort'] as int
+          : int.tryParse('${json['genericRtspPort'] ?? ''}') ?? 554,
+      genericRtspSecure: (json['genericRtspSecure'] ?? false) as bool,
       autoConnect: (json['autoConnect'] ?? false) as bool,
       mqttControlsEnabled: (json['mqttControlsEnabled'] ?? false) as bool,
       lightControlsEnabled: (json['lightControlsEnabled'] ?? false) as bool,
@@ -71,6 +93,11 @@ class AppSettings {
         prefs.getString('rtsp_format') ?? 'Bambu X1C',
       ),
       customUrl: prefs.getString('rtsp_custom_url') ?? '',
+      genericRtspUsername: prefs.getString('rtsp_generic_username') ?? '',
+      genericRtspPassword: prefs.getString('rtsp_generic_password') ?? '',
+      genericRtspPath: prefs.getString('rtsp_generic_path') ?? '/stream',
+      genericRtspPort: prefs.getInt('rtsp_generic_port') ?? 554,
+      genericRtspSecure: prefs.getBool('rtsp_generic_secure') ?? false,
       autoConnect: prefs.getBool('rtsp_auto_connect') ?? false,
       mqttControlsEnabled: prefs.getBool('rtsp_mqtt_controls_enabled') ?? false,
       lightControlsEnabled:
@@ -89,6 +116,11 @@ class AppSettings {
     await prefs.setString('rtsp_serial_number', serialNumber);
     await prefs.setString('rtsp_format', selectedFormat.storageKey);
     await prefs.setString('rtsp_custom_url', customUrl);
+    await prefs.setString('rtsp_generic_username', genericRtspUsername);
+    await prefs.setString('rtsp_generic_password', genericRtspPassword);
+    await prefs.setString('rtsp_generic_path', genericRtspPath);
+    await prefs.setInt('rtsp_generic_port', genericRtspPort);
+    await prefs.setBool('rtsp_generic_secure', genericRtspSecure);
     await prefs.setBool('rtsp_auto_connect', autoConnect);
     await prefs.setBool('rtsp_mqtt_controls_enabled', mqttControlsEnabled);
     await prefs.setBool('rtsp_light_controls_enabled', lightControlsEnabled);
@@ -156,6 +188,11 @@ class SettingsManager {
     String? serialNumber,
     String? selectedFormat,
     String? customUrl,
+    String? genericRtspUsername,
+    String? genericRtspPassword,
+    String? genericRtspPath,
+    int? genericRtspPort,
+    bool? genericRtspSecure,
     bool? autoConnect,
     bool? mqttControlsEnabled,
     bool? lightControlsEnabled,
@@ -174,6 +211,17 @@ class SettingsManager {
           ? PrinterUrlTypeX.parse(selectedFormat)
           : base.selectedFormat,
       customUrl: customUrl?.isNotEmpty == true ? customUrl! : base.customUrl,
+      genericRtspUsername: genericRtspUsername?.isNotEmpty == true
+          ? genericRtspUsername!
+          : base.genericRtspUsername,
+      genericRtspPassword: genericRtspPassword?.isNotEmpty == true
+          ? genericRtspPassword!
+          : base.genericRtspPassword,
+      genericRtspPath: genericRtspPath?.isNotEmpty == true
+          ? genericRtspPath!
+          : base.genericRtspPath,
+      genericRtspPort: genericRtspPort ?? base.genericRtspPort,
+      genericRtspSecure: genericRtspSecure ?? base.genericRtspSecure,
       autoConnect: autoConnect ?? base.autoConnect,
       mqttControlsEnabled: mqttControlsEnabled ?? base.mqttControlsEnabled,
       lightControlsEnabled: lightControlsEnabled ?? base.lightControlsEnabled,
@@ -190,12 +238,16 @@ class SettingsManager {
         serialNumber: next.serialNumber,
         selectedFormat: PrinterUrlType.custom,
         customUrl: next.customUrl,
+        genericRtspUsername: next.genericRtspUsername,
+        genericRtspPassword: next.genericRtspPassword,
+        genericRtspPath: next.genericRtspPath,
+        genericRtspPort: next.genericRtspPort,
+        genericRtspSecure: next.genericRtspSecure,
         autoConnect: next.autoConnect,
         mqttControlsEnabled: next.mqttControlsEnabled,
         lightControlsEnabled: next.lightControlsEnabled,
         hardwareAccelerationEnabled: next.hardwareAccelerationEnabled,
-        linuxUseSystemWindowDecorations:
-            next.linuxUseSystemWindowDecorations,
+        linuxUseSystemWindowDecorations: next.linuxUseSystemWindowDecorations,
       );
     }
     return next;
@@ -208,6 +260,11 @@ class SettingsManager {
     String? overrideSerialNumber,
     String? overrideSelectedFormat,
     String? overrideCustomUrl,
+    String? overrideGenericRtspUsername,
+    String? overrideGenericRtspPassword,
+    String? overrideGenericRtspPath,
+    int? overrideGenericRtspPort,
+    bool? overrideGenericRtspSecure,
     bool? overrideAutoConnect,
     bool? overrideMqttControlsEnabled,
     bool? overrideLightControlsEnabled,
@@ -228,6 +285,11 @@ class SettingsManager {
         serialNumber: overrideSerialNumber,
         selectedFormat: overrideSelectedFormat,
         customUrl: overrideCustomUrl,
+        genericRtspUsername: overrideGenericRtspUsername,
+        genericRtspPassword: overrideGenericRtspPassword,
+        genericRtspPath: overrideGenericRtspPath,
+        genericRtspPort: overrideGenericRtspPort,
+        genericRtspSecure: overrideGenericRtspSecure,
         autoConnect: overrideAutoConnect,
         mqttControlsEnabled: overrideMqttControlsEnabled,
         lightControlsEnabled: overrideLightControlsEnabled,
@@ -248,12 +310,16 @@ class SettingsManager {
       serialNumber: overrideSerialNumber,
       selectedFormat: overrideSelectedFormat,
       customUrl: overrideCustomUrl,
+      genericRtspUsername: overrideGenericRtspUsername,
+      genericRtspPassword: overrideGenericRtspPassword,
+      genericRtspPath: overrideGenericRtspPath,
+      genericRtspPort: overrideGenericRtspPort,
+      genericRtspSecure: overrideGenericRtspSecure,
       autoConnect: overrideAutoConnect,
       mqttControlsEnabled: overrideMqttControlsEnabled,
       lightControlsEnabled: overrideLightControlsEnabled,
       hardwareAccelerationEnabled: overrideHardwareAccelerationEnabled,
-      linuxUseSystemWindowDecorations:
-          overrideLinuxUseSystemWindowDecorations,
+      linuxUseSystemWindowDecorations: overrideLinuxUseSystemWindowDecorations,
     );
     return _cachedSettings!;
   }
