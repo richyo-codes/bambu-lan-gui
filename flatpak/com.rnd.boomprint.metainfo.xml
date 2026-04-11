@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.rnd.bambu_lan</id>
-  <name>Bambu Buddy</name>
+  <id>com.rnd.boomprint</id>
+  <name>BoomPrint</name>
   <summary>View streams and manage Bambu printers over LAN</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>Proprietary</project_license>
@@ -12,9 +12,9 @@
       stored locally. Do not expose printer services to the internet.
     </p>
   </description>
-  <launchable type="desktop-id">com.rnd.bambu_lan.desktop</launchable>
+  <launchable type="desktop-id">com.rnd.boomprint.desktop</launchable>
   <provides>
-    <binary>printer_lan</binary>
+    <binary>boomprint</binary>
   </provides>
   <releases>
     <release version="0.1.0" date="2025-01-01"/>

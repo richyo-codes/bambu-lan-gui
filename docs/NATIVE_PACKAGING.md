@@ -11,13 +11,13 @@ Current target families:
 These packages install the Flutter Linux release bundle under:
 
 ```text
-/opt/bambu-buddy
+/opt/boomprint
 ```
 
 and expose a launcher command:
 
 ```text
-/usr/bin/bambu-buddy
+/usr/bin/boomprint
 ```
 
 ## Why this approach
@@ -73,7 +73,7 @@ bash ./tool/build_deb.sh
 Output:
 
 ```text
-build/packages/deb/bambu-buddy_<version>_<arch>.deb
+build/packages/deb/boomprint_<version>_<arch>.deb
 ```
 
 Default runtime dependencies declared by the package:
@@ -142,7 +142,7 @@ Before finalizing the package metadata, inspect the Linux bundle against the
 target distro:
 
 ```bash
-ldd build/linux/x64/release/bundle/printer_lan
+ldd build/linux/x64/release/bundle/boomprint
 find build/linux/x64/release/bundle/lib -maxdepth 1 -type f -name '*.so' -exec ldd {} \\;
 ```
 

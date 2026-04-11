@@ -3,10 +3,10 @@ version: 1
 AppDir:
   path: build/linux/x64/release/bundle
   app_info:
-    id: com.ry.printer-lan
+    id: com.ry.boomprint
     name: Bambu RTSP Stream
     version: 1.0.0
-    exec: printer_lan
+    exec: boomprint
   runtime:
     env:
       LD_LIBRARY_PATH: "$APPDIR/lib:$APPDIR/usr/lib:$APPDIR/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"

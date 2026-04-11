@@ -127,7 +127,7 @@ jobs:
         with:
           name: android-apk
           version: ${{ env.SEMVER }}
-          filename: bambu-buddy-android-apk
+          filename: boomprint-android-apk
           append-max-detail-suffix: true
           path: artifacts/android/**
           retention-days: 7
@@ -217,7 +217,7 @@ jobs:
         with:
           name: linux-build
           version: ${{ env.SEMVER }}
-          filename: bambu-buddy-linux-build
+          filename: boomprint-linux-build
           path: build/linux/x64/release/bundle/**
           append-max-detail-suffix: true
           retention-days: 7
@@ -328,7 +328,7 @@ jobs:
         with:
           name: appimage
           version: ${{ env.SEMVER }}
-          filename: bambu-buddy-appimage
+          filename: boomprint-appimage
           append-max-detail-suffix: true
           path: |
             ./*.AppImage
@@ -421,9 +421,9 @@ jobs:
         with:
           name: flatpak
           version: ${{ env.SEMVER }}
-          filename: bambu-buddy-flatpak
+          filename: boomprint-flatpak
           append-max-detail-suffix: true
-          path: build/com.rnd.bambu_lan.flatpak
+          path: build/com.rnd.boomprint.flatpak
           if-no-files-found: error
           retention-days: 7
 
@@ -505,7 +505,7 @@ jobs:
         with:
           name: native-deb
           version: ${{ env.SEMVER }}
-          filename: bambu-buddy-deb
+          filename: boomprint-deb
           append-max-detail-suffix: true
           path: build/packages/deb/*.deb
           if-no-files-found: error
@@ -589,7 +589,7 @@ jobs:
         with:
           name: native-rpm
           version: ${{ env.SEMVER }}
-          filename: bambu-buddy-rpm
+          filename: boomprint-rpm
           append-max-detail-suffix: true
           path: build/packages/rpm/**/*.rpm
           if-no-files-found: error
@@ -681,7 +681,7 @@ jobs:
         with:
           name: windows-x64-release-${{ env.SEMVER }}
           version: ${{ env.SEMVER }}
-          filename: bambu-buddy-windows-x64-release-${{ env.SEMVER }}.zip
+          filename: boomprint-windows-x64-release-${{ env.SEMVER }}.zip
           path: build/windows/x64/runner/Release/**
           retention-days: 7
 
@@ -704,7 +704,7 @@ jobs:
         with:
           name: windows-msix
           version: ${{ env.SEMVER }}
-          filename: bambu-buddy-windows-msix
+          filename: boomprint-windows-msix
           path: '**/*.msix'
           retention-days: 7
 

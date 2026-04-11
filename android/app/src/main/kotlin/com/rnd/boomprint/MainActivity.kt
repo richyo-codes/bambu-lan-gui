@@ -1,4 +1,4 @@
-package com.rnd.printer_lan
+package com.rnd.boomprint
 
 import android.Manifest
 import android.app.NotificationChannel

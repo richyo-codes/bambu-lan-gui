@@ -106,7 +106,7 @@ class AppSettings {
 class SettingsManager {
   static AppSettings? _cachedSettings;
 
-  static const _jsonFileName = 'bambu_lan_settings.json';
+  static const _jsonFileName = 'boomprint_settings.json';
   static const _legacyJsonFileName = 'rtsp_settings.json';
 
   static Future<void> _saveToJsonFile(AppSettings settings) async {

@@ -1,4 +1,4 @@
-name: bambu_lan
+name: boomprint
 description: "LAN-only Dart helper for Bambu Lab printers (MQTT + FTP/FTPS): subscribe to telemetry, browse/upload SD, and trigger jobs."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -85,9 +85,9 @@ flutter:
 #     - assets/printer_ca.pem
 
 msix_config:
-  display_name: Bambu Buddy
+  display_name: BoomPrint
   publisher_display_name: Richard Young
-  identity_name: com.ry.printer-lan
+  identity_name: com.ry.boomprint
   msix_version: 1.0.0.0
   capabilities: internetClient, privateNetworkClientServer, picturesLibrary
   install_certificate: false

@@ -6,7 +6,7 @@ import 'package:file_saver/file_saver.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:bambu_lan/printer_url_formats.dart';
+import 'package:boomprint/printer_url_formats.dart';
 
 import 'settings_manager.dart';
 import 'window_drag_controller.dart';
@@ -203,7 +203,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final bytes = Uint8List.fromList(utf8.encode(jsonString));
 
       final savedPath = await FileSaver.instance.saveFile(
-        name: 'bambu_lan_settings',
+        name: 'boomprint_settings',
         fileExtension: 'json',
         bytes: bytes,
         mimeType: MimeType.json,
