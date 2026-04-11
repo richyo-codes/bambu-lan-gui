@@ -26,11 +26,20 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController printerIpController = TextEditingController();
   final TextEditingController serialNumberController =
       TextEditingController(); // <-- Added
+  final TextEditingController genericRtspUsernameController =
+      TextEditingController();
+  final TextEditingController genericRtspPasswordController =
+      TextEditingController();
+  final TextEditingController genericRtspPathController =
+      TextEditingController();
+  final TextEditingController genericRtspPortController =
+      TextEditingController();
   bool _autoConnect = false;
   bool _mqttControlsEnabled = false;
   bool _lightControlsEnabled = false;
   bool _hardwareAccelerationEnabled = true;
   bool _linuxUseSystemWindowDecorations = false;
+  bool _genericRtspSecure = false;
 
   PrinterUrlType selectedFormat = PrinterUrlType.bambuX1C;
 
@@ -55,13 +64,17 @@ class _SettingsPageState extends State<SettingsPage> {
     printerIpController.text = settings.printerIp;
     serialNumberController.text = settings.serialNumber;
     customUrlController.text = settings.customUrl;
+    genericRtspUsernameController.text = settings.genericRtspUsername;
+    genericRtspPasswordController.text = settings.genericRtspPassword;
+    genericRtspPathController.text = settings.genericRtspPath;
+    genericRtspPortController.text = settings.genericRtspPort.toString();
     selectedFormat = settings.selectedFormat;
     _autoConnect = settings.autoConnect;
     _mqttControlsEnabled = settings.mqttControlsEnabled;
     _lightControlsEnabled = settings.lightControlsEnabled;
     _hardwareAccelerationEnabled = settings.hardwareAccelerationEnabled;
-    _linuxUseSystemWindowDecorations =
-        settings.linuxUseSystemWindowDecorations;
+    _linuxUseSystemWindowDecorations = settings.linuxUseSystemWindowDecorations;
+    _genericRtspSecure = settings.genericRtspSecure;
     setState(() {});
   }
 
@@ -72,6 +85,11 @@ class _SettingsPageState extends State<SettingsPage> {
       serialNumber: serialNumberController.text,
       selectedFormat: selectedFormat,
       customUrl: customUrlController.text,
+      genericRtspUsername: genericRtspUsernameController.text,
+      genericRtspPassword: genericRtspPasswordController.text,
+      genericRtspPath: genericRtspPathController.text,
+      genericRtspPort: int.tryParse(genericRtspPortController.text) ?? 554,
+      genericRtspSecure: _genericRtspSecure,
       autoConnect: _autoConnect,
       mqttControlsEnabled: _mqttControlsEnabled,
       lightControlsEnabled: _lightControlsEnabled,
@@ -96,6 +114,23 @@ class _SettingsPageState extends State<SettingsPage> {
       'serialNumber': pick('serialNumber', 'rtsp_serial_number'),
       'selectedFormat': pick('selectedFormat', 'rtsp_format', 'Bambu X1C'),
       'customUrl': pick('customUrl', 'rtsp_custom_url'),
+      'genericRtspUsername': pick(
+        'genericRtspUsername',
+        'rtsp_generic_username',
+      ),
+      'genericRtspPassword': pick(
+        'genericRtspPassword',
+        'rtsp_generic_password',
+      ),
+      'genericRtspPath': pick(
+        'genericRtspPath',
+        'rtsp_generic_path',
+        '/stream',
+      ),
+      'genericRtspPort':
+          (m['genericRtspPort'] ?? m['rtsp_generic_port'] ?? 554),
+      'genericRtspSecure':
+          (m['genericRtspSecure'] ?? m['rtsp_generic_secure'] ?? false),
       'autoConnect': (m['autoConnect'] ?? m['rtsp_auto_connect'] ?? false),
       'mqttControlsEnabled':
           (m['mqttControlsEnabled'] ??
@@ -151,7 +186,12 @@ class _SettingsPageState extends State<SettingsPage> {
         printerIpController.text = imported.printerIp;
         serialNumberController.text = imported.serialNumber;
         customUrlController.text = imported.customUrl;
+        genericRtspUsernameController.text = imported.genericRtspUsername;
+        genericRtspPasswordController.text = imported.genericRtspPassword;
+        genericRtspPathController.text = imported.genericRtspPath;
+        genericRtspPortController.text = imported.genericRtspPort.toString();
         selectedFormat = imported.selectedFormat;
+        _genericRtspSecure = imported.genericRtspSecure;
         _autoConnect = imported.autoConnect;
         _mqttControlsEnabled = imported.mqttControlsEnabled;
         _lightControlsEnabled = imported.lightControlsEnabled;
@@ -190,6 +230,11 @@ class _SettingsPageState extends State<SettingsPage> {
         serialNumber: serialNumberController.text,
         selectedFormat: selectedFormat,
         customUrl: customUrlController.text,
+        genericRtspUsername: genericRtspUsernameController.text,
+        genericRtspPassword: genericRtspPasswordController.text,
+        genericRtspPath: genericRtspPathController.text,
+        genericRtspPort: int.tryParse(genericRtspPortController.text) ?? 554,
+        genericRtspSecure: _genericRtspSecure,
         autoConnect: _autoConnect,
         mqttControlsEnabled: _mqttControlsEnabled,
         lightControlsEnabled: _lightControlsEnabled,
@@ -351,6 +396,21 @@ class _SettingsPageState extends State<SettingsPage> {
     if (selectedFormat == PrinterUrlType.custom) {
       return customUrlController.text;
     }
+    if (selectedFormat == PrinterUrlType.genericRtsp) {
+      final host = printerIpController.text.trim();
+      final port = int.tryParse(genericRtspPortController.text.trim()) ?? 554;
+      final rawPath = genericRtspPathController.text.trim().isEmpty
+          ? '/stream'
+          : genericRtspPathController.text.trim();
+      final normalizedPath = rawPath.startsWith('/') ? rawPath : '/$rawPath';
+      final scheme = _genericRtspSecure ? 'rtsps' : 'rtsp';
+      final user = genericRtspUsernameController.text.trim();
+      final pass = genericRtspPasswordController.text;
+      final userInfo = user.isEmpty
+          ? ''
+          : '${Uri.encodeComponent(user)}:${Uri.encodeComponent(pass)}@';
+      return '$scheme://$userInfo$host:$port$normalizedPath';
+    }
     final template = selectedFormat.template;
     return template
         .replaceAll('\${specialcode}', specialCodeController.text)
@@ -388,211 +448,320 @@ class _SettingsPageState extends State<SettingsPage> {
             const WindowControlButtons(),
           ],
         ),
-        body: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'URL Format:',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 10),
-                DropdownButton<PrinterUrlType>(
-                  value: selectedFormat,
-                  isExpanded: true,
-                  items: PrinterUrlType.values
-                      .map(
-                        (t) => DropdownMenuItem<PrinterUrlType>(
-                          value: t,
-                          child: Text(t.displayName),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (PrinterUrlType? newValue) {
-                    setState(() {
-                      selectedFormat = newValue!;
-                    });
-                  },
-                ),
-                const SizedBox(height: 20),
-
-                // Show template variable inputs for Bambu X1C format
-                if (selectedFormat == PrinterUrlType.bambuX1C) ...[
-                  TextFormField(
-                    controller: specialCodeController,
-                    decoration: const InputDecoration(
-                      labelText: 'Special Code',
-                      hintText: 'Enter your printer\'s special code',
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter the special code';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: printerIpController,
-                    decoration: const InputDecoration(
-                      labelText: 'Printer IP Address',
-                      hintText: 'e.g., 192.168.1.100',
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter the printer IP address';
-                      }
-                      // Basic IP validation
-                      final ipRegExp = RegExp(r'^(\d{1,3}\.){3}\d{1,3}$');
-                      if (!ipRegExp.hasMatch(value)) {
-                        return 'Please enter a valid IP address';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: serialNumberController,
-                    decoration: const InputDecoration(
-                      labelText: 'Serial Number',
-                      hintText: 'Enter your printer\'s serial number',
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter the serial number';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Generated URL will be:',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    _generateUrl(),
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
-
-                // Show custom URL input for Custom format
-                if (selectedFormat == PrinterUrlType.custom) ...[
-                  TextFormField(
-                    controller: customUrlController,
-                    decoration: const InputDecoration(
-                      labelText: 'Custom RTSP URL',
-                      hintText: 'Enter your custom RTSP URL',
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter a custom RTSP URL';
-                      }
-                      if (!value.startsWith('rtsp://') &&
-                          !value.startsWith('rtsps://')) {
-                        return 'URL must start with rtsp:// or rtsps://';
-                      }
-                      return null;
-                    },
-                  ),
-                ],
-
-                const SizedBox(height: 30),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Auto-connect on launch'),
-                  subtitle: const Text(
-                    'Automatically connect when this config is valid.',
-                  ),
-                  value: _autoConnect,
-                  onChanged: (v) => setState(() => _autoConnect = v),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Enable MQTT controls'),
-                  subtitle: const Text(
-                    'Show advanced MQTT control panel (use with care).',
-                  ),
-                  value: _mqttControlsEnabled,
-                  onChanged: (v) => setState(() => _mqttControlsEnabled = v),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Enable hardware video acceleration'),
-                  subtitle: const Text(
-                    'Disable to force software decoding/rendering (useful for GTK4 black-screen debugging).',
-                  ),
-                  value: _hardwareAccelerationEnabled,
-                  onChanged: (v) =>
-                      setState(() => _hardwareAccelerationEnabled = v),
-                ),
-                if (_supportsLinuxSystemDecorations)
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Use system window decorations'),
-                    subtitle: const Text(
-                      'Try native Linux title bars and compositor-provided rounded corners.',
-                    ),
-                    value: _linuxUseSystemWindowDecorations,
-                    onChanged: (v) => setState(
-                      () => _linuxUseSystemWindowDecorations = v,
-                    ),
-                  ),
-                const SizedBox(height: 20),
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        body: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    ElevatedButton(
-                      onPressed: () async {
-                        if (_formKey.currentState!.validate()) {
-                          await _saveSettings();
-                          if (mounted) {
-                            Navigator.pop(context); // Just save and close
-                          }
-                        }
-                      },
-                      child: const Text('Save'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () async {
-                        await _exportToJson();
-                      },
-                      child: const Text('Export'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () async {
-                        await _importFromJson();
-                      },
-                      child: const Text('Import'),
-                    ),
-                    if (_supportsQrScan)
-                      ElevatedButton(
-                        onPressed: _scanQrConfig,
-                        child: const Text('Scan QR'),
+                    const Text(
+                      'URL Format:',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
                       ),
-                    ElevatedButton(
-                      onPressed: () async {
-                        if (_formKey.currentState!.validate()) {
-                          await _saveSettings();
-                          final generatedUrl = _generateUrl();
-                          if (mounted && widget.onConnect != null) {
-                            widget.onConnect!(generatedUrl);
-                          }
-                          if (mounted) {
-                            Navigator.pop(
-                              context,
-                            ); // Close settings and connect
-                          }
-                        }
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButton<PrinterUrlType>(
+                      value: selectedFormat,
+                      isExpanded: true,
+                      items: PrinterUrlType.values
+                          .map(
+                            (t) => DropdownMenuItem<PrinterUrlType>(
+                              value: t,
+                              child: Text(t.displayName),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (PrinterUrlType? newValue) {
+                        setState(() {
+                          selectedFormat = newValue!;
+                        });
                       },
-                      child: const Text('Connect'),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Show template variable inputs for Bambu X1C format
+                    if (selectedFormat == PrinterUrlType.bambuX1C ||
+                        selectedFormat == PrinterUrlType.bambuP1S) ...[
+                      TextFormField(
+                        controller: specialCodeController,
+                        decoration: const InputDecoration(
+                          labelText: 'Special Code',
+                          hintText: 'Enter your printer\'s special code',
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter the special code';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: printerIpController,
+                        decoration: const InputDecoration(
+                          labelText: 'Printer IP Address',
+                          hintText: 'e.g., 192.168.1.100',
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter the printer IP address';
+                          }
+                          // Basic IP validation
+                          final ipRegExp = RegExp(r'^(\d{1,3}\.){3}\d{1,3}$');
+                          if (!ipRegExp.hasMatch(value)) {
+                            return 'Please enter a valid IP address';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: serialNumberController,
+                        decoration: const InputDecoration(
+                          labelText: 'Serial Number',
+                          hintText: 'Enter your printer\'s serial number',
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter the serial number';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Generated URL will be:',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        _generateUrl(),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+
+                    if (selectedFormat == PrinterUrlType.genericRtsp) ...[
+                      TextFormField(
+                        controller: printerIpController,
+                        decoration: const InputDecoration(
+                          labelText: 'RTSP Host / IP Address',
+                          hintText: 'e.g., 192.168.1.100',
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter the RTSP host or IP address';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: genericRtspPortController,
+                        decoration: const InputDecoration(
+                          labelText: 'RTSP Port',
+                          hintText: '554',
+                        ),
+                        keyboardType: TextInputType.number,
+                        validator: (value) {
+                          final port = int.tryParse((value ?? '').trim());
+                          if (port == null || port < 1 || port > 65535) {
+                            return 'Please enter a valid port';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: genericRtspPathController,
+                        decoration: const InputDecoration(
+                          labelText: 'Stream Path',
+                          hintText: '/stream',
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter the RTSP path';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: genericRtspUsernameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Username',
+                          hintText: 'Optional RTSP username',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: genericRtspPasswordController,
+                        decoration: const InputDecoration(
+                          labelText: 'Password',
+                          hintText: 'Optional RTSP password',
+                        ),
+                        obscureText: true,
+                      ),
+                      const SizedBox(height: 10),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Use secure RTSP (RTSPS)'),
+                        subtitle: const Text(
+                          'Switch between rtsp:// and rtsps:// transport.',
+                        ),
+                        value: _genericRtspSecure,
+                        onChanged: (v) =>
+                            setState(() => _genericRtspSecure = v),
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Generated URL will be:',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        _generateUrl(),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+
+                    // Show custom URL input for Custom format
+                    if (selectedFormat == PrinterUrlType.custom) ...[
+                      TextFormField(
+                        controller: customUrlController,
+                        decoration: const InputDecoration(
+                          labelText: 'Custom RTSP URL',
+                          hintText: 'Enter your custom RTSP URL',
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter a custom RTSP URL';
+                          }
+                          if (!value.startsWith('rtsp://') &&
+                              !value.startsWith('rtsps://')) {
+                            return 'URL must start with rtsp:// or rtsps://';
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
+
+                    const SizedBox(height: 30),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Auto-connect on launch'),
+                      subtitle: const Text(
+                        'Automatically connect when this config is valid.',
+                      ),
+                      value: _autoConnect,
+                      onChanged: (v) => setState(() => _autoConnect = v),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Enable MQTT controls'),
+                      subtitle: const Text(
+                        'Show advanced MQTT control panel (use with care).',
+                      ),
+                      value: _mqttControlsEnabled,
+                      onChanged: (v) =>
+                          setState(() => _mqttControlsEnabled = v),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Enable hardware video acceleration'),
+                      subtitle: const Text(
+                        'Disable to force software decoding/rendering.',
+                      ),
+                      value: _hardwareAccelerationEnabled,
+                      onChanged: (v) =>
+                          setState(() => _hardwareAccelerationEnabled = v),
+                    ),
+                    if (_supportsLinuxSystemDecorations)
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Use system window decorations'),
+                        subtitle: const Text(
+                          'Try native Linux title bars and compositor-provided rounded corners.',
+                        ),
+                        value: _linuxUseSystemWindowDecorations,
+                        onChanged: (v) => setState(
+                          () => _linuxUseSystemWindowDecorations = v,
+                        ),
+                      ),
+                    const SizedBox(height: 20),
+
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      runAlignment: WrapAlignment.center,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        ElevatedButton(
+                          onPressed: () async {
+                            if (_formKey.currentState!.validate()) {
+                              await _saveSettings();
+                              if (mounted) {
+                                Navigator.pop(context); // Just save and close
+                              }
+                            }
+                          },
+                          child: const Text('Save'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () async {
+                            await _exportToJson();
+                          },
+                          child: const Text('Export'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () async {
+                            await _importFromJson();
+                          },
+                          child: const Text('Import'),
+                        ),
+                        if (_supportsQrScan)
+                          ElevatedButton(
+                            onPressed: _scanQrConfig,
+                            child: const Text('Scan QR'),
+                          ),
+                        ElevatedButton(
+                          onPressed: () async {
+                            if (_formKey.currentState!.validate()) {
+                              await _saveSettings();
+                              final generatedUrl = _generateUrl();
+                              if (mounted && widget.onConnect != null) {
+                                widget.onConnect!(generatedUrl);
+                              }
+                              if (mounted) {
+                                Navigator.pop(
+                                  context,
+                                ); // Close settings and connect
+                              }
+                            }
+                          },
+                          child: const Text('Connect'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
         ),

@@ -28,6 +28,11 @@ void main(List<String> args) async {
     overrideSerialNumber: cli.serialNumber,
     overrideSelectedFormat: cli.format,
     overrideCustomUrl: cli.customUrl,
+    overrideGenericRtspUsername: cli.genericRtspUsername,
+    overrideGenericRtspPassword: cli.genericRtspPassword,
+    overrideGenericRtspPath: cli.genericRtspPath,
+    overrideGenericRtspPort: cli.genericRtspPort,
+    overrideGenericRtspSecure: cli.genericRtspSecure,
   ); // Load and cache settings
   MediaKit.ensureInitialized();
   runApp(const MyApp());
@@ -40,6 +45,11 @@ class _CliConfig {
   final String? serialNumber;
   final String? format;
   final String? customUrl;
+  final String? genericRtspUsername;
+  final String? genericRtspPassword;
+  final String? genericRtspPath;
+  final int? genericRtspPort;
+  final bool? genericRtspSecure;
 
   const _CliConfig({
     this.configPath,
@@ -48,6 +58,11 @@ class _CliConfig {
     this.serialNumber,
     this.format,
     this.customUrl,
+    this.genericRtspUsername,
+    this.genericRtspPassword,
+    this.genericRtspPath,
+    this.genericRtspPort,
+    this.genericRtspSecure,
   });
 }
 
@@ -58,6 +73,11 @@ _CliConfig _parseCliArgs(List<String> args) {
   String? serialNumber;
   String? format;
   String? customUrl;
+  String? genericRtspUsername;
+  String? genericRtspPassword;
+  String? genericRtspPath;
+  int? genericRtspPort;
+  bool? genericRtspSecure;
 
   for (var i = 0; i < args.length; i++) {
     final arg = args[i];
@@ -97,6 +117,34 @@ _CliConfig _parseCliArgs(List<String> args) {
         customUrl = value;
         if (value != null && !arg.contains('=')) i++;
         break;
+      case '--rtsp-username':
+        genericRtspUsername = value;
+        if (value != null && !arg.contains('=')) i++;
+        break;
+      case '--rtsp-password':
+        genericRtspPassword = value;
+        if (value != null && !arg.contains('=')) i++;
+        break;
+      case '--rtsp-path':
+        genericRtspPath = value;
+        if (value != null && !arg.contains('=')) i++;
+        break;
+      case '--rtsp-port':
+        if (value != null) {
+          genericRtspPort = int.tryParse(value);
+        }
+        if (value != null && !arg.contains('=')) i++;
+        break;
+      case '--rtsp-secure':
+        genericRtspSecure = value == null
+            ? true
+            : switch (value.trim().toLowerCase()) {
+                '1' || 'true' || 'yes' || 'on' => true,
+                '0' || 'false' || 'no' || 'off' => false,
+                _ => true,
+              };
+        if (value != null && !arg.contains('=')) i++;
+        break;
       default:
         break;
     }
@@ -109,6 +157,11 @@ _CliConfig _parseCliArgs(List<String> args) {
     serialNumber: serialNumber,
     format: format,
     customUrl: customUrl,
+    genericRtspUsername: genericRtspUsername,
+    genericRtspPassword: genericRtspPassword,
+    genericRtspPath: genericRtspPath,
+    genericRtspPort: genericRtspPort,
+    genericRtspSecure: genericRtspSecure,
   );
 }
 
@@ -1436,6 +1489,21 @@ List<String> _buildTitleLines(BambuPrintStatus? ps) {
 String? _buildStreamUrl(AppSettings settings) {
   if (settings.selectedFormat == PrinterUrlType.custom) {
     return settings.customUrl.trim().isEmpty ? null : settings.customUrl.trim();
+  }
+  if (settings.selectedFormat == PrinterUrlType.genericRtsp) {
+    final host = settings.printerIp.trim();
+    if (host.isEmpty) return null;
+    final scheme = settings.genericRtspSecure ? 'rtsps' : 'rtsp';
+    final rawPath = settings.genericRtspPath.trim().isEmpty
+        ? '/stream'
+        : settings.genericRtspPath.trim();
+    final normalizedPath = rawPath.startsWith('/') ? rawPath : '/$rawPath';
+    final user = settings.genericRtspUsername.trim();
+    final pass = settings.genericRtspPassword;
+    final userInfo = user.isEmpty
+        ? ''
+        : '${Uri.encodeComponent(user)}:${Uri.encodeComponent(pass)}@';
+    return '$scheme://$userInfo$host:${settings.genericRtspPort}$normalizedPath';
   }
   final template = settings.selectedFormat.template;
   if (template.isEmpty) return null;
