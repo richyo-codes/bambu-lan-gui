@@ -22,7 +22,7 @@
 
 import 'dart:async';
 
-import 'package:bambu_lan/bambu_mqtt.dart';
+import 'package:boomprint/bambu_mqtt.dart';
 
 // ============================
 // Configuration & Public Types

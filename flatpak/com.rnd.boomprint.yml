@@ -1,8 +1,8 @@
-app-id: com.rnd.bambu_lan
+app-id: com.rnd.boomprint
 runtime: org.freedesktop.Platform
 runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
-command: run-printer-lan
+command: run-boomprint
 finish-args:
   - --share=network
   - --socket=wayland
@@ -64,20 +64,20 @@ modules:
         dest: flatpak
     build-commands:
       # Install Flutter bundle under /app/bin so lib & data sit next to the binary
-      - install -Dm755 bundle/printer_lan /app/bin/printer_lan
+      - install -Dm755 bundle/boomprint /app/bin/boomprint
       - cp -r bundle/data /app/bin/
       - cp -r bundle/lib /app/bin/
       # Launcher: scope loader path to app libs and runtime-built /app/lib.
       - |
-        cat > /app/bin/run-printer-lan <<'EOF'
+        cat > /app/bin/run-boomprint <<'EOF'
         #!/usr/bin/env sh
         # Prefer Wayland for EGL-backed video output, but keep X11 as fallback.
         export GDK_BACKEND="wayland,x11"
         export LD_LIBRARY_PATH="/app/lib:/app/bin/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-        exec /app/bin/printer_lan "$@"
+        exec /app/bin/boomprint "$@"
         EOF
-      - chmod 755 /app/bin/run-printer-lan
+      - chmod 755 /app/bin/run-boomprint
       # Install desktop & metadata
-      - install -Dm644 flatpak/com.rnd.bambu_lan.desktop /app/share/applications/com.rnd.bambu_lan.desktop
-      - install -Dm644 flatpak/com.rnd.bambu_lan.metainfo.xml /app/share/metainfo/com.rnd.bambu_lan.metainfo.xml
-      - install -Dm644 flatpak/icons/com.rnd.bambu_lan.svg /app/share/icons/hicolor/scalable/apps/com.rnd.bambu_lan.svg
+      - install -Dm644 flatpak/com.rnd.boomprint.desktop /app/share/applications/com.rnd.boomprint.desktop
+      - install -Dm644 flatpak/com.rnd.boomprint.metainfo.xml /app/share/metainfo/com.rnd.boomprint.metainfo.xml
+      - install -Dm644 flatpak/icons/com.rnd.boomprint.svg /app/share/icons/hicolor/scalable/apps/com.rnd.boomprint.svg

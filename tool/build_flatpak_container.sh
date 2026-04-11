@@ -2,10 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-MANIFEST="$ROOT_DIR/flatpak/com.rnd.bambu_lan.yml"
-APP_ID="com.rnd.bambu_lan"
+MANIFEST="$ROOT_DIR/flatpak/com.rnd.boomprint.yml"
+APP_ID="com.rnd.boomprint"
 CONTAINER_ROOT="/src"
-CONTAINER_MANIFEST="$CONTAINER_ROOT/flatpak/com.rnd.bambu_lan.yml"
+CONTAINER_MANIFEST="$CONTAINER_ROOT/flatpak/com.rnd.boomprint.yml"
 DEFAULT_OUT_DIR="$ROOT_DIR/build"
 TMP_OUT_DIR="/tmp/rnd_bambu_rtsp-flatpak"
 
@@ -49,7 +49,7 @@ mkdir -p "$OUT_DIR"
 OUT_DIR=$(cd "$OUT_DIR" && pwd)
 BUILD_DIR="$OUT_DIR/flatpak"
 REPO_DIR="$OUT_DIR/flatpak-repo"
-BUNDLE_PATH="$OUT_DIR/com.rnd.bambu_lan.flatpak"
+BUNDLE_PATH="$OUT_DIR/com.rnd.boomprint.flatpak"
 
 if [[ ! -f "$MANIFEST" ]]; then
   echo "Flatpak manifest not found: $MANIFEST" >&2
@@ -69,8 +69,8 @@ IMAGE="ghcr.io/flathub-infra/flatpak-builder-lint:latest"
 
 # Ensure Flutter release bundle exists.
 HOST_BUNDLE_DIR="$ROOT_DIR/build/linux/x64/release/bundle"
-if [[ ! -f "$HOST_BUNDLE_DIR/printer_lan" ]]; then
-  echo "Missing $HOST_BUNDLE_DIR/printer_lan. Run: flutter build linux --release" >&2
+if [[ ! -f "$HOST_BUNDLE_DIR/boomprint" ]]; then
+  echo "Missing $HOST_BUNDLE_DIR/boomprint. Run: flutter build linux --release" >&2
   exit 1
 fi
 
@@ -82,13 +82,13 @@ CONTAINER_OUT_ROOT="$CONTAINER_ROOT/build"
 if [[ "$OUT_DIR" == "$DEFAULT_OUT_DIR" ]]; then
   CONTAINER_BUILD_DIR="$CONTAINER_ROOT/build/flatpak"
   CONTAINER_REPO_DIR="$CONTAINER_ROOT/build/flatpak-repo"
-  CONTAINER_BUNDLE_PATH="$CONTAINER_ROOT/build/com.rnd.bambu_lan.flatpak"
+  CONTAINER_BUNDLE_PATH="$CONTAINER_ROOT/build/com.rnd.boomprint.flatpak"
 else
   OUT_MOUNT_SPEC="-v $OUT_DIR:/out:Z"
   CONTAINER_OUT_ROOT="/out"
   CONTAINER_BUILD_DIR="$CONTAINER_OUT_ROOT/flatpak"
   CONTAINER_REPO_DIR="$CONTAINER_OUT_ROOT/flatpak-repo"
-  CONTAINER_BUNDLE_PATH="$CONTAINER_OUT_ROOT/com.rnd.bambu_lan.flatpak"
+  CONTAINER_BUNDLE_PATH="$CONTAINER_OUT_ROOT/com.rnd.boomprint.flatpak"
 fi
 
 TTY_ARGS=()
@@ -125,7 +125,7 @@ fi
 if [[ "$USE_COPY_MODE" == "1" ]]; then
   CONTAINER_BUILD_DIR="$CONTAINER_ROOT/build/flatpak"
   CONTAINER_REPO_DIR="$CONTAINER_ROOT/build/flatpak-repo"
-  CONTAINER_BUNDLE_PATH="$CONTAINER_ROOT/build/com.rnd.bambu_lan.flatpak"
+  CONTAINER_BUNDLE_PATH="$CONTAINER_ROOT/build/com.rnd.boomprint.flatpak"
 
   CONTAINER_ID=$(
     "$ENGINE" create \

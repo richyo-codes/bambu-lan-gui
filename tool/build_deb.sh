@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BUNDLE_DIR="$ROOT_DIR/build/linux/x64/release/bundle"
 OUT_DIR="$ROOT_DIR/build/packages/deb"
-PACKAGE_NAME="bambu-buddy"
-INSTALL_DIR="/opt/bambu-buddy"
+PACKAGE_NAME="boomprint"
+INSTALL_DIR="/opt/boomprint"
 
 usage() {
   cat <<'EOF'
@@ -99,8 +99,8 @@ if [[ -z "$ARCH" ]]; then
   ARCH=$(dpkg --print-architecture 2>/dev/null || echo amd64)
 fi
 
-if [[ ! -f "$BUNDLE_DIR/printer_lan" ]]; then
-  echo "Missing bundle executable: $BUNDLE_DIR/printer_lan" >&2
+if [[ ! -f "$BUNDLE_DIR/boomprint" ]]; then
+  echo "Missing bundle executable: $BUNDLE_DIR/boomprint" >&2
   echo "Run: flutter build linux --release" >&2
   exit 1
 fi
@@ -117,11 +117,11 @@ install -d "$STAGE_DIR/usr/share/icons/hicolor/scalable/apps"
 install -d "$STAGE_DIR/usr/share/doc/$PACKAGE_NAME"
 
 cp -a "$BUNDLE_DIR/." "$STAGE_DIR$INSTALL_DIR/"
-install -m755 "$ROOT_DIR/packaging/common/bambu-buddy" "$STAGE_DIR/usr/bin/bambu-buddy"
-install -m644 "$ROOT_DIR/packaging/common/bambu-buddy.desktop" \
-  "$STAGE_DIR/usr/share/applications/bambu-buddy.desktop"
-install -m644 "$ROOT_DIR/flatpak/icons/com.rnd.bambu_lan.svg" \
-  "$STAGE_DIR/usr/share/icons/hicolor/scalable/apps/bambu-buddy.svg"
+install -m755 "$ROOT_DIR/packaging/common/boomprint" "$STAGE_DIR/usr/bin/boomprint"
+install -m644 "$ROOT_DIR/packaging/common/boomprint.desktop" \
+  "$STAGE_DIR/usr/share/applications/boomprint.desktop"
+install -m644 "$ROOT_DIR/flatpak/icons/com.rnd.boomprint.svg" \
+  "$STAGE_DIR/usr/share/icons/hicolor/scalable/apps/boomprint.svg"
 install -m644 "$ROOT_DIR/LICENSE" "$STAGE_DIR/usr/share/doc/$PACKAGE_NAME/copyright"
 
 INSTALLED_SIZE=$(du -sk "$STAGE_DIR" | awk '{print $1}')
@@ -134,7 +134,7 @@ Architecture: $ARCH
 Maintainer: Richard Young <richard@example.com>
 Installed-Size: $INSTALLED_SIZE
 Depends: libgtk-3-0, libmpv2, libpulse0, libasound2 | libasound2t64, libssl3, libstdc++6, zlib1g
-Description: Bambu Buddy desktop client for Bambu Lab printers
+Description: BoomPrint desktop client for Bambu Lab printers
  LAN-only desktop client with MQTT, FTP/FTPS, and stream viewing support.
 EOF
 

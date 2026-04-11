@@ -2,7 +2,7 @@ param(
   [string]$Configuration = "Release",
   [string]$BundleDir = "",
   [string]$OutputDir = "",
-  [string]$ProductName = "Bambu Buddy",
+  [string]$ProductName = "BoomPrint",
   [string]$Manufacturer = "RND Software",
   [string]$ProductVersion = ""
 )
@@ -54,7 +54,7 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $OutputDir = (Resolve-Path $OutputDir).Path
 
-$exePath = Join-Path $bundlePath "printer_lan.exe"
+$exePath = Join-Path $bundlePath "boomprint.exe"
 if (!(Test-Path $exePath)) {
   throw "Expected app bundle executable not found: $exePath"
 }
@@ -83,7 +83,7 @@ if (!(Test-Path $wixPath)) {
   throw "WiX source not found: $wixPath"
 }
 
-$msiName = "bambu-buddy-$ProductVersion.msi"
+$msiName = "boomprint-$ProductVersion.msi"
 $msiPath = Join-Path $OutputDir $msiName
 
 Write-Host "Building MSI from bundle: $bundlePath"

@@ -1,8 +1,8 @@
 [Desktop Entry]
-Name=Bambu Buddy
+Name=BoomPrint
 Comment=View streams and manage Bambu printers on your LAN
-Exec=printer_lan
-Icon=com.rnd.bambu_lan
+Exec=boomprint
+Icon=com.rnd.boomprint
 Terminal=false
 Type=Application
 Categories=Utility;Graphics;

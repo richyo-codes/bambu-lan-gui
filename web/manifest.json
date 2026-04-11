@@ -1,6 +1,6 @@
 {
-    "name": "Bambu Buddy",
-    "short_name": "Bambu Buddy",
+    "name": "BoomPrint",
+    "short_name": "BoomPrint",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0F3D91",

@@ -1,7 +1,7 @@
-Name:           bambu-buddy
+Name:           boomprint
 Version:        @VERSION@
 Release:        @RELEASE@%{?dist}
-Summary:        LAN-only desktop client for Bambu Lab printers
+Summary:        BoomPrint LAN client for Bambu Lab printers
 License:        MIT
 URL:            https://github.com/richyo-codes/bambu-lan-gui
 Source0:        %{name}-%{version}.tar.gz
@@ -18,7 +18,7 @@ Requires:       libstdc++
 Requires:       zlib
 
 %description
-Bambu Buddy is a LAN-only desktop client for Bambu Lab printers with MQTT,
+BoomPrint is a LAN-only desktop client for Bambu Lab printers with MQTT,
 FTP/FTPS, and stream viewing support.
 
 %prep
@@ -32,11 +32,11 @@ cp -a opt %{buildroot}/
 cp -a usr %{buildroot}/
 
 %files
-/opt/bambu-buddy
-/usr/bin/bambu-buddy
-/usr/share/applications/bambu-buddy.desktop
-/usr/share/icons/hicolor/scalable/apps/bambu-buddy.svg
-/usr/share/licenses/bambu-buddy/LICENSE
+/opt/boomprint
+/usr/bin/boomprint
+/usr/share/applications/boomprint.desktop
+/usr/share/icons/hicolor/scalable/apps/boomprint.svg
+/usr/share/licenses/boomprint/LICENSE
 
 %changelog
 * Thu Apr 10 2026 Richard Young <richard@example.com> - @VERSION@-@RELEASE@

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-MANIFEST="$ROOT_DIR/flatpak/com.rnd.bambu_lan.yml"
+MANIFEST="$ROOT_DIR/flatpak/com.rnd.boomprint.yml"
 DEFAULT_OUT_DIR="$ROOT_DIR/build"
 TMP_OUT_DIR="/tmp/rnd_bambu_rtsp-flatpak"
 
@@ -46,7 +46,7 @@ mkdir -p "$OUT_DIR"
 OUT_DIR=$(cd "$OUT_DIR" && pwd)
 BUILD_DIR="$OUT_DIR/flatpak"
 REPO_DIR="$OUT_DIR/flatpak-repo"
-BUNDLE_PATH="$OUT_DIR/com.rnd.bambu_lan.flatpak"
+BUNDLE_PATH="$OUT_DIR/com.rnd.boomprint.flatpak"
 
 if ! command -v flatpak-builder >/dev/null 2>&1; then
   if command -v dnf >/dev/null 2>&1; then
@@ -81,13 +81,13 @@ for so in "$BUNDLE_LIB_DIR"/*.so*; do
 done
 
 # libmpv and its transitive dependencies are resolved from host runtime paths
-# exposed inside Flatpak (see flatpak/com.rnd.bambu_lan.yml launcher).
+# exposed inside Flatpak (see flatpak/com.rnd.boomprint.yml launcher).
 
 # Build flatpak.
 flatpak-builder --force-clean "$BUILD_DIR" "$MANIFEST"
 
 # Create a repo and bundle for easy install/share.
 flatpak-builder --force-clean --repo="$REPO_DIR" "$BUILD_DIR" "$MANIFEST"
-flatpak build-bundle "$REPO_DIR" "$BUNDLE_PATH" com.rnd.bambu_lan
+flatpak build-bundle "$REPO_DIR" "$BUNDLE_PATH" com.rnd.boomprint
 
 echo "Flatpak bundle created: $BUNDLE_PATH"

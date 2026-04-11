@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec /opt/bambu-buddy/printer_lan "$@"
+exec /opt/boomprint/boomprint "$@"

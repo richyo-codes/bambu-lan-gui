@@ -5,7 +5,7 @@ import 'dart:typed_data';
 
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
-import 'package:bambu_lan/bambu_lan.dart';
+import 'package:boomprint/bambu_lan.dart';
 
 // ==========
 // MQTT Client

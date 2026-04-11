@@ -2,7 +2,7 @@
 
 ## App ID
 
-- `com.rnd.bambu_lan`
+- `com.rnd.boomprint`
 
 ## Current packaging model
 
@@ -36,20 +36,20 @@ This script:
 
 1. Uses Podman/Docker with `ghcr.io/flathub-infra/flatpak-builder-lint:latest`
 2. Installs Flatpak runtime + SDK `24.08`
-3. Builds modules from `flatpak/com.rnd.bambu_lan.yml`
-4. Writes bundle to `build/com.rnd.bambu_lan.flatpak`
+3. Builds modules from `flatpak/com.rnd.boomprint.yml`
+4. Writes bundle to `build/com.rnd.boomprint.flatpak`
 
 ## Install & run
 
 ```bash
-flatpak install --user --reinstall ./build/com.rnd.bambu_lan.flatpak
-flatpak run com.rnd.bambu_lan
+flatpak install --user --reinstall ./build/com.rnd.boomprint.flatpak
+flatpak run com.rnd.boomprint
 ```
 
 If you used `--tmp` or `--out-dir`, install from that bundle path instead:
 
 ```bash
-flatpak install --user --reinstall /tmp/rnd_bambu_rtsp-flatpak/com.rnd.bambu_lan.flatpak
+flatpak install --user --reinstall /tmp/rnd_bambu_rtsp-flatpak/com.rnd.boomprint.flatpak
 ```
 
 ## Troubleshooting
@@ -57,15 +57,15 @@ flatpak install --user --reinstall /tmp/rnd_bambu_rtsp-flatpak/com.rnd.bambu_lan
 Check what the app sees:
 
 ```bash
-flatpak run --command=sh com.rnd.bambu_lan -c 'echo "$LD_LIBRARY_PATH"; ldd /app/bin/printer_lan | grep "not found" || true'
+flatpak run --command=sh com.rnd.boomprint -c 'echo "$LD_LIBRARY_PATH"; ldd /app/bin/boomprint | grep "not found" || true'
 ```
 
 If module build fails, inspect builder output for the failing module (`mpv` or one of its deps), then adjust module config in:
 
-- `flatpak/com.rnd.bambu_lan.yml`
+- `flatpak/com.rnd.boomprint.yml`
 
 ## Key files
 
-- Manifest: `flatpak/com.rnd.bambu_lan.yml`
+- Manifest: `flatpak/com.rnd.boomprint.yml`
 - Container build script: `tool/build_flatpak_container.sh`
 - Local host build script: `tool/build_flatpak.sh`

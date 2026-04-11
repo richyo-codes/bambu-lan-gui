@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BUNDLE_DIR="$ROOT_DIR/build/linux/x64/release/bundle"
 OUT_DIR="$ROOT_DIR/build/packages/rpm"
-PACKAGE_NAME="bambu-buddy"
-INSTALL_DIR="/opt/bambu-buddy"
+PACKAGE_NAME="boomprint"
+INSTALL_DIR="/opt/boomprint"
 
 usage() {
   cat <<'EOF'
@@ -108,8 +108,8 @@ if [[ -z "$RPM_RELEASE" ]]; then
   RPM_RELEASE=1
 fi
 
-if [[ ! -f "$BUNDLE_DIR/printer_lan" ]]; then
-  echo "Missing bundle executable: $BUNDLE_DIR/printer_lan" >&2
+if [[ ! -f "$BUNDLE_DIR/boomprint" ]]; then
+  echo "Missing bundle executable: $BUNDLE_DIR/boomprint" >&2
   echo "Run: flutter build linux --release" >&2
   exit 1
 fi
@@ -127,11 +127,11 @@ install -d "$SOURCE_DIR/usr/share/icons/hicolor/scalable/apps"
 install -d "$SOURCE_DIR/usr/share/licenses/$PACKAGE_NAME"
 
 cp -a "$BUNDLE_DIR/." "$SOURCE_DIR$INSTALL_DIR/"
-install -m755 "$ROOT_DIR/packaging/common/bambu-buddy" "$SOURCE_DIR/usr/bin/bambu-buddy"
-install -m644 "$ROOT_DIR/packaging/common/bambu-buddy.desktop" \
-  "$SOURCE_DIR/usr/share/applications/bambu-buddy.desktop"
-install -m644 "$ROOT_DIR/flatpak/icons/com.rnd.bambu_lan.svg" \
-  "$SOURCE_DIR/usr/share/icons/hicolor/scalable/apps/bambu-buddy.svg"
+install -m755 "$ROOT_DIR/packaging/common/boomprint" "$SOURCE_DIR/usr/bin/boomprint"
+install -m644 "$ROOT_DIR/packaging/common/boomprint.desktop" \
+  "$SOURCE_DIR/usr/share/applications/boomprint.desktop"
+install -m644 "$ROOT_DIR/flatpak/icons/com.rnd.boomprint.svg" \
+  "$SOURCE_DIR/usr/share/icons/hicolor/scalable/apps/boomprint.svg"
 install -m644 "$ROOT_DIR/LICENSE" "$SOURCE_DIR/usr/share/licenses/$PACKAGE_NAME/LICENSE"
 
 tar -C "$RPMROOT/SOURCES" -czf "$RPMROOT/SOURCES/${PACKAGE_NAME}-${RPM_VERSION}.tar.gz" \
@@ -140,7 +140,7 @@ tar -C "$RPMROOT/SOURCES" -czf "$RPMROOT/SOURCES/${PACKAGE_NAME}-${RPM_VERSION}.
 sed \
   -e "s/@VERSION@/$RPM_VERSION/g" \
   -e "s/@RELEASE@/$RPM_RELEASE/g" \
-  "$ROOT_DIR/packaging/rpm/bambu-buddy.spec.in" > "$RPMROOT/SPECS/${PACKAGE_NAME}.spec"
+  "$ROOT_DIR/packaging/rpm/boomprint.spec.in" > "$RPMROOT/SPECS/${PACKAGE_NAME}.spec"
 
 rpmbuild \
   --define "_topdir $RPMROOT" \

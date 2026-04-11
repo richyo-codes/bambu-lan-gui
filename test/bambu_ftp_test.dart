@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ftpconnect/ftpconnect.dart';
 import 'package:ftpconnect/src/ftp_reply.dart';
-import 'package:bambu_lan/bambu_ftp.dart';
-import 'package:bambu_lan/bambu_lan.dart';
+import 'package:boomprint/bambu_ftp.dart';
+import 'package:boomprint/bambu_lan.dart';
 
 class _FakeFtpConnect extends FTPConnect {
   final String response;
