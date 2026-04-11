@@ -715,6 +715,17 @@ jobs:
         shell: pwsh
         run: Copy-Item -Path LICENSE -Destination build\windows\x64\runner\Release\LICENSE
 
+      - name: Upload Windows release bundle artifact
+        uses: richnetdesign/git-artifact-upload@v2
+        with:
+          name: boomprint-windows-bundle
+          version: ${{ env.SEMVER }}
+          filename: boomprint-windows-bundle
+          append-max-detail-suffix: true
+          path: build/windows/x64/runner/Release/**
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Build Windows MSI
         if: runner.os == 'Windows'
         shell: pwsh
@@ -730,19 +741,10 @@ jobs:
         with:
           name: boomprint-windows-msi
           version: ${{ env.SEMVER }}
-          filename: windows-msi
+          filename: boomprint-windows-msi
           append-max-detail-suffix: true
           path: build/windows/x64/installer/*.msi
           if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload Windows artifact (Release folder)
-        uses: richnetdesign/git-artifact-upload@v2
-        with:
-          name: boomprint-windows-x64-release-${{ env.SEMVER }}
-          version: ${{ env.SEMVER }}
-          filename: boomprint-windows-x64-release-${{ env.SEMVER }}.zip
-          path: build/windows/x64/runner/Release/**
           retention-days: 7
 
       - name: Create Windows MSIX (unsigned)
