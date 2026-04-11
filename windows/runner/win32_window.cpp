@@ -24,16 +24,10 @@ namespace {
 #define DWMWA_WINDOW_CORNER_PREFERENCE 33
 #endif
 
-/// Corner preference enum for DWMWA_WINDOW_CORNER_PREFERENCE.
-/// Redefined for older SDKs.
-#ifndef DWM_WINDOW_CORNER_PREFERENCE
-enum DWM_WINDOW_CORNER_PREFERENCE {
-  DWMWCP_DEFAULT = 0,
-  DWMWCP_DONOTROUND = 1,
-  DWMWCP_ROUND = 2,
-  DWMWCP_ROUNDSMALL = 3
-};
-#endif
+/// Rounded corner preference value for DWMWA_WINDOW_CORNER_PREFERENCE.
+/// Use the numeric value directly to avoid SDK enum conflicts across
+/// different Windows toolchains.
+constexpr DWORD kDwmWindowCornerPreferenceRound = 2;
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
@@ -115,7 +109,7 @@ void ApplyRoundedCorners(HWND hwnd) {
   if (!IsWindows11OrGreater()) {
     return;
   }
-  const DWM_WINDOW_CORNER_PREFERENCE corner_preference = DWMWCP_ROUND;
+  const DWORD corner_preference = kDwmWindowCornerPreferenceRound;
   (void)DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE,
                               &corner_preference, sizeof(corner_preference));
 }
@@ -345,7 +339,7 @@ void Win32Window::UpdateTheme(HWND const window) {
                           &enable_dark_mode, sizeof(enable_dark_mode));
   }
 
-  const DWM_WINDOW_CORNER_PREFERENCE corner_preference = DWMWCP_ROUND;
+  const DWORD corner_preference = kDwmWindowCornerPreferenceRound;
   DwmSetWindowAttribute(window, DWMWA_WINDOW_CORNER_PREFERENCE,
                         &corner_preference, sizeof(corner_preference));
 }
