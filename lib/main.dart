@@ -1150,7 +1150,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
           ElevatedButton.icon(
             onPressed: _stopStream,
             icon: const Icon(Icons.stop),
-            label: const Text('Stop'),
+            label: const Text('Disconnect'),
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
@@ -1206,7 +1206,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
             ElevatedButton.icon(
               onPressed: _stopStream,
               icon: const Icon(Icons.stop),
-              label: const Text('Stop'),
+              label: const Text('Disconnect'),
             ),
             ElevatedButton.icon(
               onPressed: _takeScreenshot,
