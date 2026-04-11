@@ -238,7 +238,7 @@ static void my_application_activate(GApplication *application) {
   GtkWindow *window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
-  gtk_window_set_title(window, "Bambu Printer Manager");
+  gtk_window_set_title(window, "BoomPrint");
   apply_window_decorations(window, !self->hide_titlebar);
 
   gtk_window_set_default_size(window, 1280, 720);
