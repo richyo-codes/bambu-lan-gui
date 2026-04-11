@@ -113,15 +113,6 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Build Android (debug APK)
-        run: flutter build apk --debug
-
-      - name: Stage artifacts with LICENSE
-        run: |
-          mkdir -p artifacts/android
-          cp build/app/outputs/flutter-apk/app-debug.apk "artifacts/android/app-debug-$SEMVER.apk"
-          cp LICENSE artifacts/android/
-
       - name: Build Android (release APK)
         run: flutter build apk --release
 
@@ -134,7 +125,7 @@ jobs:
       - name: Upload Android artifact bundle
         uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: android-apk
+          name: boomprint-android-apk
           version: ${{ env.SEMVER }}
           filename: boomprint-android-apk
           append-max-detail-suffix: true
@@ -737,7 +728,7 @@ jobs:
         if: runner.os == 'Windows'
         uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: windows-msi
+          name: boomprint-windows-msi
           version: ${{ env.SEMVER }}
           filename: windows-msi
           append-max-detail-suffix: true
@@ -748,7 +739,7 @@ jobs:
       - name: Upload Windows artifact (Release folder)
         uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: windows-x64-release-${{ env.SEMVER }}
+          name: boomprint-windows-x64-release-${{ env.SEMVER }}
           version: ${{ env.SEMVER }}
           filename: boomprint-windows-x64-release-${{ env.SEMVER }}.zip
           path: build/windows/x64/runner/Release/**
@@ -771,7 +762,7 @@ jobs:
       - name: Upload Windows MSIX artifact
         uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: windows-msix
+          name: boomprint-windows-msix
           version: ${{ env.SEMVER }}
           filename: boomprint-windows-msix
           path: '**/*.msix'
