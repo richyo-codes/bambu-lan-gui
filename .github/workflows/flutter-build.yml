@@ -29,8 +29,8 @@ jobs:
         shell: bash
         run: |
           if ! command -v git-lfs >/dev/null 2>&1; then
-            echo "git-lfs is not available on this Windows runner." >&2
-            exit 1
+            sudo apt-get update
+            sudo apt-get install -y git-lfs
           fi
           git lfs install --local
           git lfs pull
@@ -146,8 +146,8 @@ jobs:
         shell: bash
         run: |
           if ! command -v git-lfs >/dev/null 2>&1; then
-            echo "git-lfs is not available on this Windows runner." >&2
-            exit 1
+            sudo apt-get update
+            sudo apt-get install -y git-lfs
           fi
           git lfs install --local
           git lfs pull
@@ -235,6 +235,7 @@ jobs:
           fetch-depth: 0
 
       - name: Ensure Git LFS assets
+        shell: bash
         run: |
           if ! command -v git-lfs >/dev/null 2>&1; then
             sudo apt-get update
@@ -262,6 +263,7 @@ jobs:
 
       - name: Git describe
         id: ghd
+        shell: bash
         run: |
           echo "tag=$(git describe --always --tags --dirty)" >> "$GITHUB_OUTPUT"
 
@@ -345,6 +347,7 @@ jobs:
           fetch-depth: 0
 
       - name: Ensure Git LFS assets
+        shell: bash
         run: |
           if ! command -v git-lfs >/dev/null 2>&1; then
             sudo apt-get update
@@ -424,9 +427,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  windows:
-    name: Windows x64
-    runs-on: [windows-latest]
+  linux_deb:
+    name: Linux Native DEB
+    runs-on: [ubuntu-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -435,6 +438,7 @@ jobs:
           fetch-depth: 0
 
       - name: Ensure Git LFS assets
+        shell: bash
         run: |
           if ! command -v git-lfs >/dev/null 2>&1; then
             sudo apt-get update
@@ -460,10 +464,178 @@ jobs:
           fi
           echo "SEMVER=$semver" >> "$GITHUB_ENV"
 
+      - name: Install Linux and Debian packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config libgtk-3-dev libgtk-4-dev \
+            liblzma-dev libmimalloc-dev libmimalloc2.0 libpulse-dev \
+            libssl-dev curl git unzip xz-utils zip libglu1-mesa \
+            libstdc++-12-dev libasound2-dev mpv libmpv-dev \
+            software-properties-common lld llvm dpkg-dev
+
+          if [ ! -x /usr/lib/llvm-18/bin/ld.lld ] && command -v ld.lld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld.lld)" /usr/lib/llvm-18/bin/ld.lld
+          fi
+          if [ ! -x /usr/lib/llvm-18/bin/ld ] && command -v ld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld)" /usr/lib/llvm-18/bin/ld
+          fi
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build Linux (release)
+        run: flutter build linux --release
+
+      - name: Build Debian package
+        run: bash ./tool/build_deb.sh --version "$SEMVER"
+
+      - name: Upload Debian artifact
+        uses: richnetdesign/git-artifact-upload@v2
+        with:
+          name: native-deb
+          version: ${{ env.SEMVER }}
+          filename: bambu-buddy-deb
+          append-max-detail-suffix: true
+          path: build/packages/deb/*.deb
+          if-no-files-found: error
+          retention-days: 7
+
+  linux_rpm:
+    name: Linux Native RPM
+    runs-on: [ubuntu-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Ensure Git LFS assets
+        shell: bash
+        run: |
+          if ! command -v git-lfs >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y git-lfs
+          fi
+          git lfs install --local
+          git lfs pull
+
+      - name: Set SEMVER
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            semver="${GITHUB_REF_NAME#v}"
+          else
+            semver="$(git describe --always --tags --dirty 2>/dev/null || true)"
+            if [[ -z "$semver" ]]; then
+              semver="$(git rev-parse --short HEAD 2>/dev/null || true)"
+            fi
+            if [[ -z "$semver" ]]; then
+              semver="0.0.0-unknown"
+            fi
+          fi
+          echo "SEMVER=$semver" >> "$GITHUB_ENV"
+
+      - name: Install Linux and RPM packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config libgtk-3-dev libgtk-4-dev \
+            liblzma-dev libmimalloc-dev libmimalloc2.0 libpulse-dev \
+            libssl-dev curl git unzip xz-utils zip libglu1-mesa \
+            libstdc++-12-dev libasound2-dev mpv libmpv-dev \
+            software-properties-common lld llvm rpm
+
+          if [ ! -x /usr/lib/llvm-18/bin/ld.lld ] && command -v ld.lld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld.lld)" /usr/lib/llvm-18/bin/ld.lld
+          fi
+          if [ ! -x /usr/lib/llvm-18/bin/ld ] && command -v ld >/dev/null 2>&1; then
+            sudo mkdir -p /usr/lib/llvm-18/bin
+            sudo ln -sf "$(command -v ld)" /usr/lib/llvm-18/bin/ld
+          fi
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build Linux (release)
+        run: flutter build linux --release
+
+      - name: Build RPM package
+        run: bash ./tool/build_rpm.sh --version "$SEMVER"
+
+      - name: Upload RPM artifact
+        uses: richnetdesign/git-artifact-upload@v2
+        with:
+          name: native-rpm
+          version: ${{ env.SEMVER }}
+          filename: bambu-buddy-rpm
+          append-max-detail-suffix: true
+          path: build/packages/rpm/**/*.rpm
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Windows x64
+    runs-on: [windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Ensure Git LFS assets
+        shell: pwsh
+        run: |
+          if (-not (Get-Command git-lfs -ErrorAction SilentlyContinue)) {
+            throw "git-lfs is not available on this Windows runner."
+          }
+          git lfs install --local
+          git lfs pull
+
+      - name: Set SEMVER
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            semver="${GITHUB_REF_NAME#v}"
+          else
+            semver="$(git describe --always --tags --dirty 2>/dev/null || true)"
+            if [[ -z "$semver" ]]; then
+              semver="$(git rev-parse --short HEAD 2>/dev/null || true)"
+            fi
+            if [[ -z "$semver" ]]; then
+              semver="0.0.0-unknown"
+            fi
+          fi
+          echo "SEMVER=$semver" >> "$GITHUB_ENV"
+
       - name: Git describe
         id: ghd
+        shell: pwsh
         run: |
-          echo "tag=$(git describe --always --tags --dirty)" >> "$GITHUB_OUTPUT"
+          "tag=$(git describe --always --tags --dirty)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
