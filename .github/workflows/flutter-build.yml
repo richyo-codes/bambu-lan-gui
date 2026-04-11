@@ -6,6 +6,15 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      linux_gtk_variant:
+        description: Linux runner variant for desktop packaging jobs
+        required: false
+        default: gtk3
+        type: choice
+        options:
+          - gtk3
+          - gtk4
 concurrency:
   cancel-in-progress: true
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -135,6 +144,8 @@ jobs:
   linux:
     name: Linux x64
     runs-on: [ubuntu-latest]
+    env:
+      LINUX_GTK_VARIANT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.linux_gtk_variant || 'gtk3' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -200,6 +211,16 @@ jobs:
         with:
           channel: stable
 
+      - name: Select Linux runner variant
+        shell: bash
+        run: |
+          bash ./tool/select_linux_runner.sh "$LINUX_GTK_VARIANT"
+          if [[ "$LINUX_GTK_VARIANT" == "gtk4" ]]; then
+            echo "LINUX_GTK_ARTIFACT_SUFFIX=-gtk4" >> "$GITHUB_ENV"
+          else
+            echo "LINUX_GTK_ARTIFACT_SUFFIX=" >> "$GITHUB_ENV"
+          fi
+
       - name: Enable Linux desktop
         run: flutter config --enable-linux-desktop
 
@@ -215,9 +236,9 @@ jobs:
       - name: Upload Linux build artifact
         uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: linux-build
+          name: boomprint-linux-build${{ env.LINUX_GTK_ARTIFACT_SUFFIX }}
           version: ${{ env.SEMVER }}
-          filename: boomprint-linux-build
+          filename: boomprint-linux-build${{ env.LINUX_GTK_ARTIFACT_SUFFIX }}
           path: build/linux/x64/release/bundle/**
           append-max-detail-suffix: true
           retention-days: 7
@@ -227,6 +248,8 @@ jobs:
     # Temporarily disabled: current AppImage packaging path is unstable/broken.
     if: ${{ false }}
     runs-on: [ubuntu-latest]
+    env:
+      LINUX_GTK_VARIANT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.linux_gtk_variant || 'gtk3' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -298,6 +321,16 @@ jobs:
         with:
           channel: stable
 
+      - name: Select Linux runner variant
+        shell: bash
+        run: |
+          bash ./tool/select_linux_runner.sh "$LINUX_GTK_VARIANT"
+          if [[ "$LINUX_GTK_VARIANT" == "gtk4" ]]; then
+            echo "LINUX_GTK_ARTIFACT_SUFFIX=-gtk4" >> "$GITHUB_ENV"
+          else
+            echo "LINUX_GTK_ARTIFACT_SUFFIX=" >> "$GITHUB_ENV"
+          fi
+
       - name: Enable Linux desktop
         run: flutter config --enable-linux-desktop
 
@@ -326,9 +359,9 @@ jobs:
       - name: Upload AppImage artifact
         uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: appimage
+          name: boomprint-appimage${{ env.LINUX_GTK_ARTIFACT_SUFFIX }}
           version: ${{ env.SEMVER }}
-          filename: boomprint-appimage
+          filename: boomprint-appimage${{ env.LINUX_GTK_ARTIFACT_SUFFIX }}
           append-max-detail-suffix: true
           path: |
             ./*.AppImage
@@ -339,6 +372,8 @@ jobs:
   linux_flatpak:
     name: Linux Flatpak
     runs-on: [ubuntu-latest]
+    env:
+      LINUX_GTK_VARIANT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.linux_gtk_variant || 'gtk3' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -404,6 +439,16 @@ jobs:
         with:
           channel: stable
 
+      - name: Select Linux runner variant
+        shell: bash
+        run: |
+          bash ./tool/select_linux_runner.sh "$LINUX_GTK_VARIANT"
+          if [[ "$LINUX_GTK_VARIANT" == "gtk4" ]]; then
+            echo "LINUX_GTK_ARTIFACT_SUFFIX=-gtk4" >> "$GITHUB_ENV"
+          else
+            echo "LINUX_GTK_ARTIFACT_SUFFIX=" >> "$GITHUB_ENV"
+          fi
+
       - name: Enable Linux desktop
         run: flutter config --enable-linux-desktop
 
@@ -419,9 +464,9 @@ jobs:
       - name: Upload Flatpak artifact
         uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: flatpak
+          name: boomprint-flatpak${{ env.LINUX_GTK_ARTIFACT_SUFFIX }}
           version: ${{ env.SEMVER }}
-          filename: boomprint-flatpak
+          filename: boomprint-flatpak${{ env.LINUX_GTK_ARTIFACT_SUFFIX }}
           append-max-detail-suffix: true
           path: build/com.rnd.boomprint.flatpak
           if-no-files-found: error
@@ -430,6 +475,8 @@ jobs:
   linux_deb:
     name: Linux Native DEB
     runs-on: [ubuntu-latest]
+    env:
+      LINUX_GTK_VARIANT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.linux_gtk_variant || 'gtk3' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -488,6 +535,16 @@ jobs:
         with:
           channel: stable
 
+      - name: Select Linux runner variant
+        shell: bash
+        run: |
+          bash ./tool/select_linux_runner.sh "$LINUX_GTK_VARIANT"
+          if [[ "$LINUX_GTK_VARIANT" == "gtk4" ]]; then
+            echo "LINUX_GTK_ARTIFACT_SUFFIX=-gtk4" >> "$GITHUB_ENV"
+          else
+            echo "LINUX_GTK_ARTIFACT_SUFFIX=" >> "$GITHUB_ENV"
+          fi
+
       - name: Enable Linux desktop
         run: flutter config --enable-linux-desktop
 
@@ -503,9 +560,9 @@ jobs:
       - name: Upload Debian artifact
         uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: native-deb
+          name: boomprint-native-deb${{ env.LINUX_GTK_ARTIFACT_SUFFIX }}
           version: ${{ env.SEMVER }}
-          filename: boomprint-deb
+          filename: boomprint-deb${{ env.LINUX_GTK_ARTIFACT_SUFFIX }}
           append-max-detail-suffix: true
           path: build/packages/deb/*.deb
           if-no-files-found: error
@@ -514,6 +571,8 @@ jobs:
   linux_rpm:
     name: Linux Native RPM
     runs-on: [ubuntu-latest]
+    env:
+      LINUX_GTK_VARIANT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.linux_gtk_variant || 'gtk3' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -572,6 +631,16 @@ jobs:
         with:
           channel: stable
 
+      - name: Select Linux runner variant
+        shell: bash
+        run: |
+          bash ./tool/select_linux_runner.sh "$LINUX_GTK_VARIANT"
+          if [[ "$LINUX_GTK_VARIANT" == "gtk4" ]]; then
+            echo "LINUX_GTK_ARTIFACT_SUFFIX=-gtk4" >> "$GITHUB_ENV"
+          else
+            echo "LINUX_GTK_ARTIFACT_SUFFIX=" >> "$GITHUB_ENV"
+          fi
+
       - name: Enable Linux desktop
         run: flutter config --enable-linux-desktop
 
@@ -587,9 +656,9 @@ jobs:
       - name: Upload RPM artifact
         uses: richnetdesign/git-artifact-upload@v2
         with:
-          name: native-rpm
+          name: boomprint-native-rpm${{ env.LINUX_GTK_ARTIFACT_SUFFIX }}
           version: ${{ env.SEMVER }}
-          filename: boomprint-rpm
+          filename: boomprint-rpm${{ env.LINUX_GTK_ARTIFACT_SUFFIX }}
           append-max-detail-suffix: true
           path: build/packages/rpm/**/*.rpm
           if-no-files-found: error
