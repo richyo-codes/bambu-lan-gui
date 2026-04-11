@@ -70,13 +70,16 @@ if ([string]::IsNullOrWhiteSpace($ProductVersion)) {
   $ProductVersion = Convert-ToMsiVersion -InputVersion $ProductVersion
 }
 
-if (!(Get-Command wix -ErrorAction SilentlyContinue)) {
-  if (!(Get-Command dotnet -ErrorAction SilentlyContinue)) {
-    throw "WiX is not installed and dotnet was not found to install it."
-  }
-  dotnet tool install --global wix --version 4.*
-  $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+if (!(Get-Command dotnet -ErrorAction SilentlyContinue)) {
+  throw "dotnet was not found; it is required to install or update WiX."
 }
+
+if (Get-Command wix -ErrorAction SilentlyContinue) {
+  dotnet tool update --global wix --version 7.*
+} else {
+  dotnet tool install --global wix --version 7.*
+}
+$env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
 
 $wixPath = Join-Path $repoRoot "windows/installer/Product.wxs"
 if (!(Test-Path $wixPath)) {
