@@ -205,7 +205,7 @@ static void my_application_activate(GApplication *application) {
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
   // Use Flutter's header and make the window frameless.
-  gtk_window_set_title(window, "Bambu Printer Manager");
+  gtk_window_set_title(window, "BoomPrint");
   apply_window_decorations(window, FALSE);
 
   gtk_window_set_default_size(window, 1280, 720);
