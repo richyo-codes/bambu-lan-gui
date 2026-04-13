@@ -7,10 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:media_kit/media_kit.dart';
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   final rootBoundaryKey = GlobalKey();
+  MediaKit.ensureInitialized();
 
   testWidgets('capture marketing screenshots', (tester) async {
     final outputDir = Directory(_outputDirPath());
@@ -33,7 +35,7 @@ void main() {
 
     await _capture(tester, rootBoundaryKey, outputDir, 'home');
 
-    await tester.tap(find.text('Configure Stream'));
+    await tester.tap(find.byIcon(Icons.settings).first);
     await tester.pumpAndSettle(const Duration(seconds: 2));
     await _capture(tester, rootBoundaryKey, outputDir, 'settings');
 
