@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:file_saver/file_saver.dart';
@@ -7,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:boomprint/printer_url_formats.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import 'settings_manager.dart';
 import 'window_drag_controller.dart';
@@ -79,7 +79,15 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _saveSettings() async {
-    final settings = AppSettings(
+    final settings = _currentSettings();
+    await SettingsManager.saveSettings(settings);
+    await WindowChromeController.setLinuxSystemDecorations(
+      _linuxUseSystemWindowDecorations,
+    );
+  }
+
+  AppSettings _currentSettings() {
+    return AppSettings(
       specialCode: specialCodeController.text,
       printerIp: printerIpController.text,
       serialNumber: serialNumberController.text,
@@ -96,10 +104,41 @@ class _SettingsPageState extends State<SettingsPage> {
       hardwareAccelerationEnabled: _hardwareAccelerationEnabled,
       linuxUseSystemWindowDecorations: _linuxUseSystemWindowDecorations,
     );
-    await SettingsManager.saveSettings(settings);
-    await WindowChromeController.setLinuxSystemDecorations(
-      _linuxUseSystemWindowDecorations,
-    );
+  }
+
+  Future<void> _applyImportedSettings(
+    AppSettings imported, {
+    required String successMessage,
+  }) async {
+    setState(() {
+      specialCodeController.text = imported.specialCode;
+      printerIpController.text = imported.printerIp;
+      serialNumberController.text = imported.serialNumber;
+      customUrlController.text = imported.customUrl;
+      genericRtspUsernameController.text = imported.genericRtspUsername;
+      genericRtspPasswordController.text = imported.genericRtspPassword;
+      genericRtspPathController.text = imported.genericRtspPath;
+      genericRtspPortController.text = imported.genericRtspPort.toString();
+      selectedFormat = imported.selectedFormat;
+      _genericRtspSecure = imported.genericRtspSecure;
+      _autoConnect = imported.autoConnect;
+      _mqttControlsEnabled = imported.mqttControlsEnabled;
+      _lightControlsEnabled = imported.lightControlsEnabled;
+      _hardwareAccelerationEnabled = imported.hardwareAccelerationEnabled;
+      _linuxUseSystemWindowDecorations =
+          imported.linuxUseSystemWindowDecorations;
+    });
+
+    await SettingsManager.saveSettings(imported);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(successMessage)));
+  }
+
+  String _currentSettingsQrPayload() {
+    return jsonEncode(_currentSettings().toJson());
   }
 
   Map<String, dynamic> _normalizeJson(Map<String, dynamic> src) {
@@ -159,6 +198,7 @@ class _SettingsPageState extends State<SettingsPage> {
         withData: true, // ensure bytes are available on all platforms
       );
       if (result == null || result.files.isEmpty) return;
+      if (!mounted) return;
       final file = result.files.single;
       if (file.bytes == null) {
         // Shouldn't happen with withData: true, but guard anyway
@@ -180,38 +220,11 @@ class _SettingsPageState extends State<SettingsPage> {
       final normalized = _normalizeJson(decoded);
       final imported = AppSettings.fromJson(normalized);
 
-      // Update UI fields
-      setState(() {
-        specialCodeController.text = imported.specialCode;
-        printerIpController.text = imported.printerIp;
-        serialNumberController.text = imported.serialNumber;
-        customUrlController.text = imported.customUrl;
-        genericRtspUsernameController.text = imported.genericRtspUsername;
-        genericRtspPasswordController.text = imported.genericRtspPassword;
-        genericRtspPathController.text = imported.genericRtspPath;
-        genericRtspPortController.text = imported.genericRtspPort.toString();
-        selectedFormat = imported.selectedFormat;
-        _genericRtspSecure = imported.genericRtspSecure;
-        _autoConnect = imported.autoConnect;
-        _mqttControlsEnabled = imported.mqttControlsEnabled;
-        _lightControlsEnabled = imported.lightControlsEnabled;
-        _hardwareAccelerationEnabled = imported.hardwareAccelerationEnabled;
-        _linuxUseSystemWindowDecorations =
-            imported.linuxUseSystemWindowDecorations;
-      });
-
-      // Persist via manager (writes SharedPreferences & JSON file)
-      await SettingsManager.saveSettings(imported);
-
-      if (mounted) {
-        final origin = file.path?.isNotEmpty == true ? file.path : file.name;
-        final msg = origin != null && origin.isNotEmpty
-            ? 'Settings imported from: $origin'
-            : 'Settings imported successfully.';
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(msg)));
-      }
+      final origin = file.path?.isNotEmpty == true ? file.path : file.name;
+      final msg = origin != null && origin.isNotEmpty
+          ? 'Settings imported from: $origin'
+          : 'Settings imported successfully.';
+      await _applyImportedSettings(imported, successMessage: msg);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -223,24 +236,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _exportToJson() async {
     try {
-      // Compose settings from current UI state so unsaved edits are included
-      final settings = AppSettings(
-        specialCode: specialCodeController.text,
-        printerIp: printerIpController.text,
-        serialNumber: serialNumberController.text,
-        selectedFormat: selectedFormat,
-        customUrl: customUrlController.text,
-        genericRtspUsername: genericRtspUsernameController.text,
-        genericRtspPassword: genericRtspPasswordController.text,
-        genericRtspPath: genericRtspPathController.text,
-        genericRtspPort: int.tryParse(genericRtspPortController.text) ?? 554,
-        genericRtspSecure: _genericRtspSecure,
-        autoConnect: _autoConnect,
-        mqttControlsEnabled: _mqttControlsEnabled,
-        lightControlsEnabled: _lightControlsEnabled,
-        hardwareAccelerationEnabled: _hardwareAccelerationEnabled,
-        linuxUseSystemWindowDecorations: _linuxUseSystemWindowDecorations,
-      );
+      final settings = _currentSettings();
 
       final jsonString = const JsonEncoder.withIndent(
         '  ',
@@ -271,86 +267,105 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Map<String, String> _extractQrFields(String raw) {
-    final out = <String, String>{};
+  AppSettings? _decodeQrSettings(String raw) {
     final text = raw.trim();
-    if (text.isEmpty) return out;
-
-    String? _pick(Map<String, dynamic> m, List<String> keys) {
-      for (final key in keys) {
-        final v = m[key];
-        if (v != null && v.toString().trim().isNotEmpty) {
-          return v.toString().trim();
-        }
-      }
-      return null;
-    }
-
-    void _applyMap(Map<String, dynamic> map) {
-      final specialCode = _pick(map, const [
-        'specialCode',
-        'special_code',
-        'accessCode',
-        'access_code',
-        'token',
-        'code',
-      ]);
-      final printerIp = _pick(map, const [
-        'printerIp',
-        'printer_ip',
-        'ip',
-        'host',
-        'address',
-      ]);
-      final serial = _pick(map, const [
-        'serialNumber',
-        'serial_number',
-        'serial',
-        'sn',
-        'device_sn',
-      ]);
-      if (specialCode != null) out['specialCode'] = specialCode;
-      if (printerIp != null) out['printerIp'] = printerIp;
-      if (serial != null) out['serialNumber'] = serial;
-    }
+    if (text.isEmpty) return null;
 
     if (text.startsWith('{')) {
       try {
         final decoded = jsonDecode(text);
         if (decoded is Map<String, dynamic>) {
-          _applyMap(decoded);
+          return AppSettings.fromJson(_normalizeJson(decoded));
         }
       } catch (_) {}
     }
 
-    final uri = Uri.tryParse(text);
-    if (uri != null) {
-      final qp = <String, dynamic>{};
-      for (final entry in uri.queryParameters.entries) {
-        qp[entry.key] = entry.value;
+    Map<String, dynamic> extractLegacyMap(String rawText) {
+      final out = <String, String>{};
+
+      String? pick(Map<String, dynamic> m, List<String> keys) {
+        for (final key in keys) {
+          final v = m[key];
+          if (v != null && v.toString().trim().isNotEmpty) {
+            return v.toString().trim();
+          }
+        }
+        return null;
       }
-      _applyMap(qp);
-    }
 
-    if (out.isEmpty) {
-      final kv = <String, dynamic>{};
-      final parts = text.split(RegExp(r'[;\n,&]'));
-      for (final p in parts) {
-        final idx = p.indexOf('=');
-        if (idx <= 0) continue;
-        final k = p.substring(0, idx).trim();
-        final v = p.substring(idx + 1).trim();
-        if (k.isNotEmpty && v.isNotEmpty) kv[k] = v;
+      void applyMap(Map<String, dynamic> map) {
+        final specialCode = pick(map, const [
+          'specialCode',
+          'special_code',
+          'accessCode',
+          'access_code',
+          'token',
+          'code',
+        ]);
+        final printerIp = pick(map, const [
+          'printerIp',
+          'printer_ip',
+          'ip',
+          'host',
+          'address',
+        ]);
+        final serial = pick(map, const [
+          'serialNumber',
+          'serial_number',
+          'serial',
+          'sn',
+          'device_sn',
+        ]);
+        if (specialCode != null) out['specialCode'] = specialCode;
+        if (printerIp != null) out['printerIp'] = printerIp;
+        if (serial != null) out['serialNumber'] = serial;
       }
-      if (kv.isNotEmpty) _applyMap(kv);
+
+      final uri = Uri.tryParse(rawText);
+      if (uri != null) {
+        final qp = <String, dynamic>{};
+        for (final entry in uri.queryParameters.entries) {
+          qp[entry.key] = entry.value;
+        }
+        applyMap(qp);
+      }
+
+      if (out.isEmpty) {
+        final kv = <String, dynamic>{};
+        final parts = rawText.split(RegExp(r'[;\n,&]'));
+        for (final p in parts) {
+          final idx = p.indexOf('=');
+          if (idx <= 0) continue;
+          final k = p.substring(0, idx).trim();
+          final v = p.substring(idx + 1).trim();
+          if (k.isNotEmpty && v.isNotEmpty) kv[k] = v;
+        }
+        if (kv.isNotEmpty) applyMap(kv);
+      }
+
+      if (!out.containsKey('printerIp')) {
+        final m = RegExp(r'(\d{1,3}\.){3}\d{1,3}').firstMatch(rawText);
+        if (m != null) out['printerIp'] = m.group(0)!;
+      }
+
+      return out;
     }
 
-    if (!out.containsKey('printerIp')) {
-      final m = RegExp(r'(\d{1,3}\.){3}\d{1,3}').firstMatch(text);
-      if (m != null) out['printerIp'] = m.group(0)!;
-    }
+    final legacyFields = extractLegacyMap(text);
+    if (legacyFields.isEmpty) return null;
 
-    return out;
+    return AppSettings(
+      specialCode: legacyFields['specialCode'] ?? '',
+      printerIp: legacyFields['printerIp'] ?? '',
+      serialNumber: legacyFields['serialNumber'] ?? '',
+      selectedFormat: PrinterUrlType.bambuX1C,
+      customUrl: '',
+      autoConnect: _autoConnect,
+      mqttControlsEnabled: _mqttControlsEnabled,
+      lightControlsEnabled: _lightControlsEnabled,
+      hardwareAccelerationEnabled: _hardwareAccelerationEnabled,
+      linuxUseSystemWindowDecorations: _linuxUseSystemWindowDecorations,
+    );
   }
 
   Future<void> _scanQrConfig() async {
@@ -368,8 +383,8 @@ class _SettingsPageState extends State<SettingsPage> {
     ).push<String>(MaterialPageRoute(builder: (_) => const _QrScanPage()));
     if (!mounted || raw == null || raw.trim().isEmpty) return;
 
-    final parsed = _extractQrFields(raw);
-    if (parsed.isEmpty) {
+    final imported = _decodeQrSettings(raw);
+    if (imported == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('QR scanned, but no known config fields found.'),
@@ -378,17 +393,49 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
-    setState(() {
-      final code = parsed['specialCode'];
-      final ip = parsed['printerIp'];
-      final sn = parsed['serialNumber'];
-      if (code != null) specialCodeController.text = code;
-      if (ip != null) printerIpController.text = ip;
-      if (sn != null) serialNumberController.text = sn;
-    });
+    await _applyImportedSettings(
+      imported,
+      successMessage: 'Applied settings from QR code.',
+    );
+  }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Applied printer fields from QR code.')),
+  Future<void> _showSettingsQrCode() async {
+    final payload = _currentSettingsQrPayload();
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Settings QR Code'),
+        content: SizedBox(
+          width: 340,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Scan this QR code on another device to clone the current settings.',
+              ),
+              const SizedBox(height: 16),
+              QrImageView(
+                data: payload,
+                version: QrVersions.auto,
+                size: 260,
+                backgroundColor: Colors.white,
+              ),
+              const SizedBox(height: 12),
+              SelectableText(
+                payload,
+                maxLines: 4,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -429,6 +476,11 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           actions: [
+            IconButton(
+              tooltip: 'Show settings QR code',
+              icon: const Icon(Icons.qr_code_2),
+              onPressed: _showSettingsQrCode,
+            ),
             if (_supportsQrScan)
               IconButton(
                 tooltip: 'Scan printer QR',
@@ -716,12 +768,15 @@ class _SettingsPageState extends State<SettingsPage> {
                           onPressed: () async {
                             if (_formKey.currentState!.validate()) {
                               await _saveSettings();
-                              if (mounted) {
-                                Navigator.pop(context); // Just save and close
-                              }
+                              if (!context.mounted) return;
+                              Navigator.of(context).pop();
                             }
                           },
                           child: const Text('Save'),
+                        ),
+                        ElevatedButton(
+                          onPressed: _showSettingsQrCode,
+                          child: const Text('Show QR'),
                         ),
                         ElevatedButton(
                           onPressed: () async {
@@ -748,11 +803,8 @@ class _SettingsPageState extends State<SettingsPage> {
                               if (mounted && widget.onConnect != null) {
                                 widget.onConnect!(generatedUrl);
                               }
-                              if (mounted) {
-                                Navigator.pop(
-                                  context,
-                                ); // Close settings and connect
-                              }
+                              if (!context.mounted) return;
+                              Navigator.of(context).pop();
                             }
                           },
                           child: const Text('Connect'),
