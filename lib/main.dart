@@ -1413,7 +1413,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final titleLines = _buildTitleLines(_lastPrintStatus);
+    final titleSummary = _buildTitleSummary(_lastPrintStatus);
     final compactLandscape = _isMobileLandscape(context);
 
     return FramelessWindowResizeFrame(
@@ -1427,14 +1427,18 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
               children: [
                 Text(
                   AppStrings.appDisplayName,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
-                if (titleLines.isNotEmpty)
-                  ...titleLines.map(
-                    (line) => Text(
-                      line,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
+                if (titleSummary != null)
+                  Text(
+                    titleSummary,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
               ],
             ),
@@ -1507,7 +1511,7 @@ String? _formatPrintFileTitle(BambuPrintStatus? ps) {
   return path.basename(gcodeFile);
 }
 
-List<String> _buildTitleLines(BambuPrintStatus? ps) {
+String? _buildTitleSummary(BambuPrintStatus? ps) {
   final lines = <String>[];
   final printFile = _formatPrintFileTitle(ps);
   if (printFile != null) {
@@ -1521,7 +1525,8 @@ List<String> _buildTitleLines(BambuPrintStatus? ps) {
   if (ids != null) {
     lines.add(ids);
   }
-  return lines;
+  if (lines.isEmpty) return null;
+  return lines.join(' • ');
 }
 
 String? _buildStreamUrl(AppSettings settings) {
