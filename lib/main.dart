@@ -1419,30 +1419,15 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     return FramelessWindowResizeFrame(
       child: Scaffold(
         appBar: WindowChromeHeader(
-          title: SizedBox(
-            width: double.infinity,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  AppStrings.appDisplayName,
+          title: const Text(AppStrings.appDisplayName),
+          subtitle: titleSummary == null
+              ? null
+              : Text(
+                  titleSummary,
                   maxLines: 1,
                   softWrap: false,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-                if (titleSummary != null)
-                  Text(
-                    titleSummary,
-                    maxLines: 1,
-                    softWrap: false,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-              ],
-            ),
-          ),
           actions: [
             if (_mqttControlsEnabled)
               IconButton(

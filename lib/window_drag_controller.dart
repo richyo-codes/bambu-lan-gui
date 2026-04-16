@@ -291,12 +291,16 @@ class WindowChromeHeader extends StatelessWidget
   const WindowChromeHeader({
     super.key,
     required this.title,
+    this.subtitle,
+    this.leading,
     this.actions = const [],
     this.actionPadding = const EdgeInsets.symmetric(horizontal: 12),
     this.actionHeight = 52,
   });
 
   final Widget title;
+  final Widget? subtitle;
+  final Widget? leading;
   final List<Widget> actions;
   final EdgeInsetsGeometry actionPadding;
   final double actionHeight;
@@ -328,19 +332,40 @@ class WindowChromeHeader extends StatelessWidget
               height: kToolbarHeight,
               child: Row(
                 children: [
+                  if (leading != null) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: leading!,
+                    ),
+                  ],
                   Expanded(
                     child: WindowDragArea(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Align(
                           alignment: Alignment.centerLeft,
-                          child: DefaultTextStyle(
-                            style:
-                                theme.appBarTheme.titleTextStyle ??
-                                theme.textTheme.titleLarge!.copyWith(
-                                  color: onSurface,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              DefaultTextStyle(
+                                style:
+                                    theme.appBarTheme.titleTextStyle ??
+                                    theme.textTheme.titleLarge!.copyWith(
+                                      color: onSurface,
+                                    ),
+                                child: title,
+                              ),
+                              if (subtitle != null)
+                                DefaultTextStyle(
+                                  style:
+                                      theme.appBarTheme.toolbarTextStyle ??
+                                      theme.textTheme.bodySmall!.copyWith(
+                                        color: onSurface,
+                                      ),
+                                  child: subtitle!,
                                 ),
-                            child: title,
+                            ],
                           ),
                         ),
                       ),

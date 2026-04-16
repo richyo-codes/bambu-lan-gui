@@ -5,6 +5,7 @@ import 'package:file_saver/file_saver.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:boomprint/app_strings.dart';
 import 'package:boomprint/connection_preflight.dart';
 import 'package:boomprint/printer_url_formats.dart';
 import 'package:boomprint/sensitive_auth.dart';
@@ -644,7 +645,13 @@ class _SettingsPageState extends State<SettingsPage> {
     return FramelessWindowResizeFrame(
       child: Scaffold(
         appBar: WindowChromeHeader(
-          title: const Text('Stream Settings'),
+          title: const Text(AppStrings.appDisplayName),
+          subtitle: const Text('Stream Settings'),
+          leading: IconButton(
+            tooltip: 'Back',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).maybePop(),
+          ),
           actions: [
             IconButton(
               tooltip: 'Show settings QR code',

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:boomprint/feature_flags.dart';
+import 'package:boomprint/app_strings.dart';
 import 'package:flutter/material.dart';
 import 'package:boomprint/bambu_ftp.dart';
 import 'package:boomprint/bambu_lan.dart';
@@ -896,7 +897,15 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
     if (!FeatureFlags.ftpBrowserEnabled) {
       return FramelessWindowResizeFrame(
         child: Scaffold(
-          appBar: const WindowChromeHeader(title: Text('FTP Browser')),
+          appBar: WindowChromeHeader(
+            title: const Text(AppStrings.appDisplayName),
+            subtitle: const Text('FTP Browser'),
+            leading: IconButton(
+              tooltip: 'Back',
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
+          ),
           body: const Center(
             child: Text('FTP Browser is disabled for this build.'),
           ),
@@ -910,7 +919,13 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
     return FramelessWindowResizeFrame(
       child: Scaffold(
         appBar: WindowChromeHeader(
-          title: const Text('FTP Browser'),
+          title: const Text(AppStrings.appDisplayName),
+          subtitle: const Text('FTP Browser'),
+          leading: IconButton(
+            tooltip: 'Back',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).maybePop(),
+          ),
           actions: [
             IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
           ],

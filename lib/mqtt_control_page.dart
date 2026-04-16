@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boomprint/app_strings.dart';
 import 'package:boomprint/bambu_lan.dart';
 import 'package:boomprint/bambu_mqtt.dart';
 import 'package:boomprint/settings_manager.dart';
@@ -216,7 +217,15 @@ class _MqttControlPageState extends State<MqttControlPage> {
   Widget build(BuildContext context) {
     return FramelessWindowResizeFrame(
       child: Scaffold(
-        appBar: const WindowChromeHeader(title: Text('MQTT Controls')),
+        appBar: WindowChromeHeader(
+          title: const Text(AppStrings.appDisplayName),
+          subtitle: const Text('MQTT Controls'),
+          leading: IconButton(
+            tooltip: 'Back',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).maybePop(),
+          ),
+        ),
         body: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
