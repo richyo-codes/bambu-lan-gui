@@ -44,6 +44,7 @@ dependencies:
   flutter_dotenv: ^6.0.0
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.1.3
+  local_auth: ^2.3.0
   three_mf:
     path: packages/three_mf
   #flutter_secure_storage: ^10.0.0-beta.4

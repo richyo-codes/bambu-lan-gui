@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:boomprint/bambu_lan.dart';
 import 'package:boomprint/bambu_mqtt.dart';
 import 'package:boomprint/feature_flags.dart';
+import 'package:boomprint/connection_preflight.dart';
 import 'package:boomprint/printer_url_formats.dart';
 import 'package:boomprint/settings_manager.dart';
 import 'package:boomprint/printer_stream_manager.dart';
 import 'package:boomprint/monitoring_alerts.dart';
+import 'package:boomprint/sensitive_auth.dart';
 import 'settings_page.dart';
 import 'mqtt_control_page.dart';
 import 'ftp_browser_page.dart';
@@ -1056,6 +1058,20 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Future<void> _openSettings() async {
+    if (SensitiveAuth.isAndroid) {
+      final authenticated = await SensitiveAuth.authenticate(
+        reason: 'Authenticate to open printer settings.',
+      );
+      if (!authenticated) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Settings access was not approved.')),
+          );
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -1349,10 +1365,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
           ),
           ElevatedButton(
             onPressed: () async {
-              final streamUrl = await PrinterStreamManager.getStreamUrl();
-              if (streamUrl != null) {
-                _onConnect(streamUrl);
-              } else {
+              final settings = SettingsManager.settings;
+              final streamUrl = ConnectionPreflight.buildStreamUrl(settings);
+              if (streamUrl.trim().isEmpty) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
@@ -1360,7 +1375,34 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                     ),
                   );
                 }
+                return;
               }
+
+              final summary = await ConnectionPreflight.run(
+                settings: settings,
+                streamUrl: streamUrl,
+              );
+              if (!mounted) return;
+
+              if (summary.hasRequiredFailures) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(summary.summaryLine)));
+                return;
+              }
+
+              final optionalFailures = summary.optionalFailures.toList();
+              if (optionalFailures.isNotEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Printer stream is reachable. ${optionalFailures.map((r) => r.label).join(', ')} unavailable, but optional.',
+                    ),
+                  ),
+                );
+              }
+
+              _onConnect(streamUrl);
             },
             child: const Text('Connect to Printer'),
           ),

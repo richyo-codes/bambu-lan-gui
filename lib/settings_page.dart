@@ -5,7 +5,9 @@ import 'package:file_saver/file_saver.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:boomprint/connection_preflight.dart';
 import 'package:boomprint/printer_url_formats.dart';
+import 'package:boomprint/sensitive_auth.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'settings_manager.dart';
@@ -40,6 +42,8 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _hardwareAccelerationEnabled = true;
   bool _linuxUseSystemWindowDecorations = false;
   bool _genericRtspSecure = false;
+  bool _checkingFirewall = false;
+  ConnectionPreflightSummary? _lastConnectionCheck;
 
   PrinterUrlType selectedFormat = PrinterUrlType.bambuX1C;
 
@@ -84,6 +88,17 @@ class _SettingsPageState extends State<SettingsPage> {
     await WindowChromeController.setLinuxSystemDecorations(
       _linuxUseSystemWindowDecorations,
     );
+  }
+
+  Future<bool> _reauthForSensitiveAction(String reason) async {
+    if (!SensitiveAuth.isAndroid) return true;
+    final ok = await SensitiveAuth.authenticate(reason: reason);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Action was not approved.')));
+    }
+    return ok;
   }
 
   AppSettings _currentSettings() {
@@ -192,6 +207,12 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _importFromJson() async {
     try {
+      if (!await _reauthForSensitiveAction(
+        'Authenticate to import settings.',
+      )) {
+        return;
+      }
+      if (!mounted) return;
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
@@ -236,6 +257,12 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _exportToJson() async {
     try {
+      if (!await _reauthForSensitiveAction(
+        'Authenticate to export settings.',
+      )) {
+        return;
+      }
+      if (!mounted) return;
       final settings = _currentSettings();
 
       final jsonString = const JsonEncoder.withIndent(
@@ -378,6 +405,13 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
+    if (!await _reauthForSensitiveAction(
+      'Authenticate to scan and import settings.',
+    )) {
+      return;
+    }
+    if (!mounted) return;
+
     final raw = await Navigator.of(
       context,
     ).push<String>(MaterialPageRoute(builder: (_) => const _QrScanPage()));
@@ -400,6 +434,13 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _showSettingsQrCode() async {
+    if (!await _reauthForSensitiveAction(
+      'Authenticate to view the settings QR code.',
+    )) {
+      return;
+    }
+    if (!mounted) return;
+
     final payload = _currentSettingsQrPayload();
     await showDialog<void>(
       context: context,
@@ -440,28 +481,162 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   String _generateUrl() {
-    if (selectedFormat == PrinterUrlType.custom) {
-      return customUrlController.text;
+    return ConnectionPreflight.buildStreamUrl(_currentSettings());
+  }
+
+  Widget _buildConnectionStatusIcon(PortCheckStatus status) {
+    return switch (status) {
+      PortCheckStatus.reachable => const Icon(
+        Icons.check_circle,
+        color: Colors.green,
+      ),
+      PortCheckStatus.skipped => const Icon(Icons.info, color: Colors.grey),
+      PortCheckStatus.invalidTarget => const Icon(
+        Icons.help_outline,
+        color: Colors.orange,
+      ),
+      PortCheckStatus.timedOut ||
+      PortCheckStatus.connectionRefused ||
+      PortCheckStatus.networkUnreachable ||
+      PortCheckStatus.unknownFailure => const Icon(
+        Icons.error,
+        color: Colors.red,
+      ),
+    };
+  }
+
+  Widget _buildConnectionCheckCard(ConnectionPreflightSummary summary) {
+    final requiredFailures = summary.requiredFailures.toList();
+    final optionalFailures = summary.optionalFailures.toList();
+    final hasBlockingFailure = requiredFailures.isNotEmpty;
+    final summaryColor = hasBlockingFailure ? Colors.red : Colors.green;
+
+    Widget buildRow(PortCheckResult result) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildConnectionStatusIcon(result.status),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${result.label}${result.host.isNotEmpty ? ' • ${result.endpoint}' : ''}',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(result.message),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
     }
-    if (selectedFormat == PrinterUrlType.genericRtsp) {
-      final host = printerIpController.text.trim();
-      final port = int.tryParse(genericRtspPortController.text.trim()) ?? 554;
-      final rawPath = genericRtspPathController.text.trim().isEmpty
-          ? '/stream'
-          : genericRtspPathController.text.trim();
-      final normalizedPath = rawPath.startsWith('/') ? rawPath : '/$rawPath';
-      final scheme = _genericRtspSecure ? 'rtsps' : 'rtsp';
-      final user = genericRtspUsernameController.text.trim();
-      final pass = genericRtspPasswordController.text;
-      final userInfo = user.isEmpty
-          ? ''
-          : '${Uri.encodeComponent(user)}:${Uri.encodeComponent(pass)}@';
-      return '$scheme://$userInfo$host:$port$normalizedPath';
+
+    return Card(
+      color: summaryColor.withValues(alpha: 0.06),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  hasBlockingFailure ? Icons.portable_wifi_off : Icons.wifi,
+                  color: summaryColor,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    hasBlockingFailure
+                        ? 'Firewall check blocked connection'
+                        : 'Firewall check passed',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: summaryColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(summary.summaryLine),
+            const SizedBox(height: 6),
+            Text(
+              'FTP/FTPS is optional. Stream and MQTT are the required checks for normal printer control.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            for (final result in summary.results) buildRow(result),
+            if (optionalFailures.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Optional unavailable: ${optionalFailures.map((r) => r.label).join(', ')}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _runConnectionPreflight() async {
+    if (!_formKey.currentState!.validate()) {
+      return false;
     }
-    final template = selectedFormat.template;
-    return template
-        .replaceAll('\${specialcode}', specialCodeController.text)
-        .replaceAll('\${printerip}', printerIpController.text);
+
+    final settings = _currentSettings();
+    final generatedUrl = _generateUrl();
+
+    setState(() {
+      _checkingFirewall = true;
+    });
+
+    try {
+      await _saveSettings();
+      final summary = await ConnectionPreflight.run(
+        settings: settings,
+        streamUrl: generatedUrl,
+      );
+      if (!mounted) return false;
+
+      setState(() {
+        _lastConnectionCheck = summary;
+      });
+
+      if (summary.hasRequiredFailures) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(summary.summaryLine)));
+        return false;
+      }
+
+      final optionalFailures = summary.optionalFailures.toList();
+      if (optionalFailures.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Printer stream is reachable. ${optionalFailures.map((r) => r.label).join(', ')} unavailable, but optional.',
+            ),
+          ),
+        );
+      }
+
+      return true;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _checkingFirewall = false;
+        });
+      }
+    }
   }
 
   @override
@@ -595,6 +770,10 @@ class _SettingsPageState extends State<SettingsPage> {
                           color: Colors.grey,
                         ),
                       ),
+                      if (_lastConnectionCheck != null) ...[
+                        const SizedBox(height: 16),
+                        _buildConnectionCheckCard(_lastConnectionCheck!),
+                      ],
                     ],
 
                     if (selectedFormat == PrinterUrlType.genericRtsp) ...[
@@ -759,13 +938,15 @@ class _SettingsPageState extends State<SettingsPage> {
                       runSpacing: 12,
                       children: [
                         ElevatedButton(
-                          onPressed: () async {
-                            if (_formKey.currentState!.validate()) {
-                              await _saveSettings();
-                              if (!context.mounted) return;
-                              Navigator.of(context).pop();
-                            }
-                          },
+                          onPressed: _checkingFirewall
+                              ? null
+                              : () async {
+                                  if (_formKey.currentState!.validate()) {
+                                    await _saveSettings();
+                                    if (!context.mounted) return;
+                                    Navigator.of(context).pop();
+                                  }
+                                },
                           child: const Text('Save'),
                         ),
                         ElevatedButton(
@@ -790,18 +971,28 @@ class _SettingsPageState extends State<SettingsPage> {
                             child: const Text('Scan QR'),
                           ),
                         ElevatedButton(
-                          onPressed: () async {
-                            if (_formKey.currentState!.validate()) {
-                              await _saveSettings();
-                              final generatedUrl = _generateUrl();
-                              if (mounted && widget.onConnect != null) {
-                                widget.onConnect!(generatedUrl);
-                              }
-                              if (!context.mounted) return;
-                              Navigator.of(context).pop();
-                            }
-                          },
-                          child: const Text('Connect'),
+                          onPressed: _checkingFirewall
+                              ? null
+                              : () async {
+                                  final canConnect =
+                                      await _runConnectionPreflight();
+                                  if (!canConnect) return;
+                                  final generatedUrl = _generateUrl();
+                                  if (mounted && widget.onConnect != null) {
+                                    widget.onConnect!(generatedUrl);
+                                  }
+                                  if (!context.mounted) return;
+                                  Navigator.of(context).pop();
+                                },
+                          child: _checkingFirewall
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text('Connect'),
                         ),
                       ],
                     ),
