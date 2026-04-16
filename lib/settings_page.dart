@@ -468,13 +468,8 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     return FramelessWindowResizeFrame(
       child: Scaffold(
-        appBar: AppBar(
-          title: const WindowDragArea(
-            child: SizedBox(
-              width: double.infinity,
-              child: Text('Stream Settings'),
-            ),
-          ),
+        appBar: WindowChromeHeader(
+          title: const Text('Stream Settings'),
           actions: [
             IconButton(
               tooltip: 'Show settings QR code',
@@ -497,7 +492,6 @@ class _SettingsPageState extends State<SettingsPage> {
               icon: const Icon(Icons.file_open),
               onPressed: _importFromJson,
             ),
-            const WindowControlButtons(),
           ],
         ),
         body: LayoutBuilder(

@@ -216,15 +216,7 @@ class _MqttControlPageState extends State<MqttControlPage> {
   Widget build(BuildContext context) {
     return FramelessWindowResizeFrame(
       child: Scaffold(
-        appBar: AppBar(
-          title: const WindowDragArea(
-            child: SizedBox(
-              width: double.infinity,
-              child: Text('MQTT Controls'),
-            ),
-          ),
-          actions: const [WindowControlButtons()],
-        ),
+        appBar: const WindowChromeHeader(title: Text('MQTT Controls')),
         body: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(

@@ -1373,31 +1373,28 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final titleLines = _buildTitleLines(_lastPrintStatus);
     final compactLandscape = _isMobileLandscape(context);
-    final double? toolbarHeight = titleLines.isEmpty
-        ? null
-        : kToolbarHeight + (18.0 * titleLines.length);
 
     return FramelessWindowResizeFrame(
       child: Scaffold(
-        appBar: AppBar(
-          toolbarHeight: toolbarHeight,
-          title: WindowDragArea(
-            child: SizedBox(
-              width: double.infinity,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(AppStrings.appDisplayName),
-                  if (titleLines.isNotEmpty)
-                    ...titleLines.map(
-                      (line) => Text(
-                        line,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
+        appBar: WindowChromeHeader(
+          title: SizedBox(
+            width: double.infinity,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  AppStrings.appDisplayName,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                if (titleLines.isNotEmpty)
+                  ...titleLines.map(
+                    (line) => Text(
+                      line,
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
           ),
           actions: [
@@ -1425,7 +1422,6 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
               icon: const Icon(Icons.settings),
               onPressed: _openSettings,
             ),
-            const WindowControlButtons(),
           ],
         ),
         body: isStreaming
