@@ -36,11 +36,40 @@ class ThreeMfProjectInfo {
     return out;
   }
 
+  List<ThreeMfFilamentInfo> get orderedFilaments {
+    final copy = filaments.toList(growable: false);
+    copy.sort((a, b) {
+      final aSlot = a.slot ?? 1 << 30;
+      final bSlot = b.slot ?? 1 << 30;
+      final bySlot = aSlot.compareTo(bSlot);
+      if (bySlot != 0) return bySlot;
+      return a.summary.compareTo(b.summary);
+    });
+    return copy;
+  }
+
   List<String> get plateSummaries {
     return plates
         .map((plate) => plate.summary)
         .where((value) => value.isNotEmpty)
         .toList(growable: false);
+  }
+
+  List<String> get nozzleHints {
+    final out = <String>[];
+    for (final filament in filaments) {
+      final nozzle = filament.nozzleDiameter?.trim() ?? '';
+      if (nozzle.isNotEmpty && !out.contains(nozzle)) {
+        out.add(nozzle);
+      }
+    }
+    return out;
+  }
+
+  String? get nozzleSummary {
+    final hints = nozzleHints;
+    if (hints.isEmpty) return null;
+    return hints.join(', ');
   }
 
   String? compatibilityWarningFor(String selectedLabel) {

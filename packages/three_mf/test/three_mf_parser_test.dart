@@ -87,5 +87,38 @@ G1 X10 Y10
         contains('No plate-specific G-code was found in the 3MF archive.'),
       );
     });
+
+    test('orders filaments by slot when available', () async {
+      final info = await _parseCase({
+        'Metadata/project_settings.config': '''
+<?xml version="1.0" encoding="UTF-8"?>
+<config>
+  <filament slot="2" filament_type="PLA" filament_name="Second" />
+  <filament slot="1" filament_type="PETG" filament_name="First" />
+</config>
+''',
+      });
+
+      expect(info, isNotNull);
+      expect(info!.filaments, hasLength(2));
+      expect(info.orderedFilaments.first.slot, 1);
+      expect(info.orderedFilaments.last.slot, 2);
+    });
+
+    test('collects nozzle hints from filament metadata', () async {
+      final info = await _parseCase({
+        'Metadata/project_settings.config': '''
+<?xml version="1.0" encoding="UTF-8"?>
+<config>
+  <filament slot="1" filament_type="PETG" filament_name="First" nozzle_diameter="0.4" />
+  <filament slot="2" filament_type="PLA" filament_name="Second" nozzle_diameter="0.6" />
+</config>
+''',
+      });
+
+      expect(info, isNotNull);
+      expect(info!.nozzleHints, containsAll(['0.4', '0.6']));
+      expect(info.nozzleSummary, '0.4, 0.6');
+    });
   });
 }

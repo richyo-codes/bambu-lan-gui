@@ -135,8 +135,12 @@ class ThreeMfParser {
           if (inner.isNotEmpty) {
             onPair(tag, inner);
           }
+          final slotSuffix = _xmlSlotSuffix(element);
           for (final attr in element.attributes) {
-            onPair('${tag}_${attr.name.local}', attr.value);
+            final key = slotSuffix == null
+                ? '${tag}_${attr.name.local}'
+                : '${tag}_${slotSuffix}_${attr.name.local}';
+            onPair(key, attr.value);
           }
         }
         return;
@@ -232,7 +236,8 @@ class ThreeMfParser {
   }
 
   int? _slotIndexFromKey(String key, String value) {
-    final slotKey = RegExp(r'(?:tray|slot|ams)(?:_|-)?(\d+)');
+    final numericValue = int.tryParse(value.trim());
+    final slotKey = RegExp(r'(?:filament|tray|slot|ams)(?:_|-)?(\d+)');
     final keyMatch = slotKey.firstMatch(key);
     if (keyMatch != null) {
       return int.tryParse(keyMatch.group(1)!);
@@ -240,6 +245,25 @@ class ThreeMfParser {
     final valueMatch = slotKey.firstMatch(value.toLowerCase());
     if (valueMatch != null) {
       return int.tryParse(valueMatch.group(1)!);
+    }
+    if ((key.contains('slot') || key.contains('tray') || key.contains('ams')) &&
+        numericValue != null) {
+      return numericValue;
+    }
+    return null;
+  }
+
+  String? _xmlSlotSuffix(XmlElement element) {
+    final tag = element.name.local.toLowerCase();
+    if (tag != 'filament') return null;
+    for (final attr in element.attributes) {
+      final name = attr.name.local.toLowerCase();
+      if (name == 'slot' || name == 'tray' || name == 'ams') {
+        final suffix = _normalizeKey(attr.value);
+        if (suffix.isNotEmpty) {
+          return suffix;
+        }
+      }
     }
     return null;
   }

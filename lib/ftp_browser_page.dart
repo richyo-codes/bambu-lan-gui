@@ -30,6 +30,10 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
   ThreeMfProjectInfo? _selectedThreeMfInfo;
   bool _loadingThreeMfInfo = false;
   String? _selectedThreeMfPath;
+  String? _currentNozzleDiameter;
+  String? _currentNozzleType;
+  final Map<int, FilamentOption?> _threeMfFilamentSelections =
+      <int, FilamentOption?>{};
   final List<String> _printDebugLog = <String>[];
   String? _pendingPrintSeq;
   int _pendingReportCount = 0;
@@ -127,6 +131,7 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
       _loadingThreeMfInfo = true;
       _selectedThreeMfPath = remotePath;
       _selectedThreeMfInfo = null;
+      _threeMfFilamentSelections.clear();
     });
 
     Directory? tempDir;
@@ -150,8 +155,15 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
         _loadingThreeMfInfo = false;
         if (info != null) {
           final matched = _matchFilamentOption(info);
-          if (matched != null) {
+          if (matched != null && info.orderedFilaments.length <= 1) {
             _selectedFilament = matched;
+          }
+          for (var i = 0; i < info.orderedFilaments.length; i++) {
+            final filament = info.orderedFilaments[i];
+            final key = _threeMfFilamentKey(filament, i);
+            _threeMfFilamentSelections[key] = _matchFilamentOptionForFilament(
+              filament,
+            );
           }
         }
       });
@@ -189,6 +201,94 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
     return null;
   }
 
+  FilamentOption? _matchFilamentOptionForFilament(
+    ThreeMfFilamentInfo filament,
+  ) {
+    final hints = <String>[
+      ...filament.compatibilityTokens,
+      filament.summary,
+      if (filament.fields.values.isNotEmpty)
+        ...filament.fields.values.where((value) => value.trim().isNotEmpty),
+    ];
+    return _matchFilamentOptionByHints(hints);
+  }
+
+  FilamentOption? _matchFilamentOptionByHints(Iterable<String> hints) {
+    final normalizedHints = hints
+        .map((value) => value.toLowerCase())
+        .where((value) => value.isNotEmpty)
+        .toList();
+    if (normalizedHints.isEmpty) return null;
+
+    for (final option in _filamentOptions) {
+      final label = option.label.toLowerCase();
+      if (normalizedHints.any((hint) => label.contains(hint))) {
+        return option;
+      }
+    }
+    return null;
+  }
+
+  int _threeMfFilamentKey(ThreeMfFilamentInfo filament, int index) {
+    return filament.slot ?? index;
+  }
+
+  List<int> _buildThreeMfAmsMapping(List<int> trays) {
+    const totalSlots = 5;
+    final mapping = List<int>.filled(totalSlots, -1);
+    if (trays.isEmpty) return mapping;
+    final start = totalSlots - trays.length;
+    for (var i = 0; i < trays.length && start + i < totalSlots; i++) {
+      mapping[start + i] = trays[i];
+    }
+    return mapping;
+  }
+
+  _ThreeMfPrintSelection? _resolveThreeMfPrintSelection(
+    ThreeMfProjectInfo info,
+  ) {
+    final orderedFilaments = info.orderedFilaments;
+    if (orderedFilaments.isEmpty) return null;
+
+    final selectedOptions = <FilamentOption>[];
+    for (var i = 0; i < orderedFilaments.length; i++) {
+      final filament = orderedFilaments[i];
+      final key = _threeMfFilamentKey(filament, i);
+      final selection =
+          _threeMfFilamentSelections[key] ??
+          _matchFilamentOptionForFilament(filament);
+      if (selection == null) {
+        return _ThreeMfPrintSelection(
+          error:
+              'Select a filament for ${filament.summary.isNotEmpty ? filament.summary : 'filament ${i + 1}'}.',
+        );
+      }
+      if (selection.id == 'external' && orderedFilaments.length > 1) {
+        return const _ThreeMfPrintSelection(
+          error: 'Multi-filament 3MF jobs must use AMS filament selections.',
+        );
+      }
+      selectedOptions.add(selection);
+    }
+
+    final selectedLabels = selectedOptions.map((opt) => opt.label).toList();
+    final amsTrays = selectedOptions
+        .where((opt) => opt.trayIndex != null)
+        .map((opt) => opt.trayIndex!)
+        .toList();
+    if (amsTrays.length != selectedOptions.length) {
+      return const _ThreeMfPrintSelection(
+        error: 'Selected filament mapping is missing AMS tray indices.',
+      );
+    }
+
+    return _ThreeMfPrintSelection(
+      amsMapping: _buildThreeMfAmsMapping(amsTrays),
+      useAms: true,
+      selectedLabels: selectedLabels,
+    );
+  }
+
   void _handleMqttReport(BambuReportEvent event) {
     final print = _asStringDynamicMap(event.json['print']);
     if (print != null) {
@@ -200,6 +300,14 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
           if (_selectedFilament == null && _selectedThreeMfInfo != null) {
             _selectedFilament = _matchFilamentOption(_selectedThreeMfInfo!);
           }
+        });
+      }
+
+      final printStatus = event.printStatus;
+      if (printStatus != null) {
+        _setStateIfMounted(() {
+          _currentNozzleDiameter = printStatus.nozzleDiameter;
+          _currentNozzleType = printStatus.nozzleType;
         });
       }
     }
@@ -445,28 +553,48 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
       if (isGcode) {
         seq = await _mqtt!.printGcodeFile(file);
       } else {
-        if (selectedFilament == null) {
-          _setStateIfMounted(
-            () => _status =
-                'Select a filament option before starting a .3mf print.',
-          );
+        final info = _selectedThreeMfInfo;
+        final resolved = info != null && info.orderedFilaments.isNotEmpty
+            ? _resolveThreeMfPrintSelection(info)
+            : null;
+        List<int> mapping;
+        bool useAms;
+
+        if (resolved != null) {
+          if (resolved.error != null) {
+            _setStateIfMounted(() => _status = resolved.error!);
+            _logPrintDebug('PRINT blocked: ${resolved.error}');
+            return;
+          }
+          mapping = resolved.amsMapping;
+          useAms = resolved.useAms;
           _logPrintDebug(
-            'PRINT blocked: no filament selected for project_file.',
+            '3MF filament mapping: ${resolved.selectedLabels.join(' | ')}',
           );
-          return;
+        } else {
+          if (selectedFilament == null) {
+            _setStateIfMounted(
+              () => _status =
+                  'Select a filament option before starting a .3mf print.',
+            );
+            _logPrintDebug(
+              'PRINT blocked: no filament selected for project_file.',
+            );
+            return;
+          }
+          final trayIndex = _trayIndexFromFilament(selectedFilament);
+          useAms = selectedFilament.id != 'external';
+          if (useAms && trayIndex == null) {
+            _setStateIfMounted(
+              () => _status = 'Selected filament is invalid for AMS mapping.',
+            );
+            _logPrintDebug(
+              'PRINT blocked: invalid AMS mapping for ${selectedFilament.id}.',
+            );
+            return;
+          }
+          mapping = useAms ? _singleColorAmsMapping(trayIndex!) : <int>[];
         }
-        final trayIndex = _trayIndexFromFilament(selectedFilament);
-        final useAms = selectedFilament.id != 'external';
-        if (useAms && trayIndex == null) {
-          _setStateIfMounted(
-            () => _status = 'Selected filament is invalid for AMS mapping.',
-          );
-          _logPrintDebug(
-            'PRINT blocked: invalid AMS mapping for ${selectedFilament.id}.',
-          );
-          return;
-        }
-        final mapping = useAms ? _singleColorAmsMapping(trayIndex!) : <int>[];
         seq = await _mqtt!.printProjectFile(
           projectPath: file,
           plateIndex: 1,
@@ -522,10 +650,10 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
       );
     }
 
-    final selectedLabel = _selectedFilament?.label;
-    final compatibilityWarning = selectedLabel == null
-        ? null
-        : info.compatibilityWarningFor(selectedLabel);
+    final isMultiFilament = info.orderedFilaments.length > 1;
+    final currentNozzle = _currentNozzleLabel;
+    final projectNozzles = info.nozzleSummary;
+    final nozzleMismatchWarning = _buildNozzleMismatchWarning(info);
 
     return Padding(
       padding: const EdgeInsets.only(top: 8),
@@ -549,12 +677,37 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
                 Text('Plates: ${info.plateSummaries.join(' | ')}'),
               if (info.filamentHints.isNotEmpty)
                 Text('Filament hints: ${info.filamentHints.join(' | ')}'),
-              if (compatibilityWarning != null) ...[
+              if (projectNozzles != null)
+                Text('Slicer nozzle: $projectNozzles mm'),
+              if (currentNozzle != null) Text('Printer nozzle: $currentNozzle'),
+              if (nozzleMismatchWarning != null) ...[
                 const SizedBox(height: 6),
                 Text(
-                  compatibilityWarning,
+                  nozzleMismatchWarning,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
+              ],
+              if (!isMultiFilament) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const Text('Filament (optional): '),
+                    const SizedBox(width: 8),
+                    Expanded(child: _buildSingleFilamentSelector(info)),
+                  ],
+                ),
+              ] else ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'Filament mapping',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                for (var i = 0; i < info.orderedFilaments.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _buildThreeMfFilamentRow(info, i),
+                  ),
               ],
               for (final warning in info.warnings) ...[
                 const SizedBox(height: 4),
@@ -571,6 +724,160 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSingleFilamentSelector(ThreeMfProjectInfo info) {
+    final selectedLabel = _selectedFilament?.label;
+    final compatibilityWarning = selectedLabel == null
+        ? null
+        : info.compatibilityWarningFor(selectedLabel);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<FilamentOption>(
+          isExpanded: true,
+          initialValue: _resolveSelectedFilament(),
+          decoration: const InputDecoration(hintText: 'Select filament'),
+          items: _filamentOptions
+              .map(
+                (f) => DropdownMenuItem<FilamentOption>(
+                  value: f,
+                  child: Row(
+                    children: [
+                      if (f.color != null)
+                        Container(
+                          width: 12,
+                          height: 12,
+                          margin: const EdgeInsets.only(right: 8),
+                          decoration: BoxDecoration(
+                            color: f.color,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.black26),
+                          ),
+                        ),
+                      Expanded(
+                        child: Text(f.label, overflow: TextOverflow.ellipsis),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
+          onChanged: (v) => setState(() => _selectedFilament = v),
+        ),
+        if (compatibilityWarning != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            compatibilityWarning,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
+      ],
+    );
+  }
+
+  String? get _currentNozzleLabel {
+    final diameter = _currentNozzleDiameter?.trim() ?? '';
+    final type = _currentNozzleType?.trim() ?? '';
+    if (diameter.isEmpty && type.isEmpty) return null;
+    if (diameter.isNotEmpty && type.isNotEmpty) {
+      return '$type $diameter mm';
+    }
+    return diameter.isNotEmpty ? '$diameter mm' : type;
+  }
+
+  String? _buildNozzleMismatchWarning(ThreeMfProjectInfo info) {
+    final projectNozzles = info.nozzleHints;
+    final current = _currentNozzleDiameter?.trim() ?? '';
+    if (projectNozzles.isEmpty || current.isEmpty) return null;
+
+    final normalizedCurrent = _normalizeNozzleText(current);
+    if (normalizedCurrent.isEmpty) return null;
+
+    for (final projectNozzle in projectNozzles) {
+      if (_normalizeNozzleText(projectNozzle) == normalizedCurrent) {
+        return null;
+      }
+    }
+
+    return 'Slicer nozzle ${projectNozzles.join(', ')} mm does not match the printer nozzle $current mm.';
+  }
+
+  String _normalizeNozzleText(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized.isEmpty) return '';
+    final match = RegExp(r'(\d+(?:\.\d+)?)').firstMatch(normalized);
+    return match?.group(1) ?? normalized.replaceAll(RegExp(r'[^a-z0-9.]+'), '');
+  }
+
+  Widget _buildThreeMfFilamentRow(ThreeMfProjectInfo info, int index) {
+    final filament = info.orderedFilaments[index];
+    final key = _threeMfFilamentKey(filament, index);
+    final selected =
+        _threeMfFilamentSelections[key] ??
+        _matchFilamentOptionForFilament(filament);
+    final warning = selected == null
+        ? null
+        : info.compatibilityWarningFor(selected.label);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          filament.summary.isNotEmpty
+              ? filament.summary
+              : 'Filament ${index + 1}',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<FilamentOption>(
+          key: ValueKey('three-mf-filament-$key-${selected?.id ?? 'none'}'),
+          isExpanded: true,
+          initialValue: selected,
+          decoration: const InputDecoration(
+            hintText: 'Select printer filament',
+          ),
+          items: _filamentOptions
+              .map(
+                (f) => DropdownMenuItem<FilamentOption>(
+                  value: f,
+                  child: Row(
+                    children: [
+                      if (f.color != null)
+                        Container(
+                          width: 12,
+                          height: 12,
+                          margin: const EdgeInsets.only(right: 8),
+                          decoration: BoxDecoration(
+                            color: f.color,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.black26),
+                          ),
+                        ),
+                      Expanded(
+                        child: Text(f.label, overflow: TextOverflow.ellipsis),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
+          onChanged: (v) {
+            setState(() {
+              _threeMfFilamentSelections[key] = v;
+            });
+          },
+        ),
+        if (warning != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            warning,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
+      ],
     );
   }
 
@@ -782,6 +1089,20 @@ class _MqttEnvelopeAck {
     required this.envelope,
     required this.sequenceId,
     required this.payload,
+  });
+}
+
+class _ThreeMfPrintSelection {
+  final List<int> amsMapping;
+  final bool useAms;
+  final List<String> selectedLabels;
+  final String? error;
+
+  const _ThreeMfPrintSelection({
+    this.amsMapping = const [],
+    this.useAms = true,
+    this.selectedLabels = const [],
+    this.error,
   });
 }
 
