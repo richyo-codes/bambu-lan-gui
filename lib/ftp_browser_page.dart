@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:boomprint/feature_flags.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:boomprint/bambu_ftp.dart';
 import 'package:boomprint/bambu_lan.dart';
 import 'package:boomprint/bambu_mqtt.dart';
 import 'package:boomprint/settings_manager.dart';
+import 'package:three_mf/three_mf.dart';
 import 'window_drag_controller.dart';
 
 class FtpBrowserPage extends StatefulWidget {
@@ -25,6 +27,9 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
   String _status = '';
   FilamentOption? _selectedFilament;
   List<FilamentOption> _filamentOptions = const [];
+  ThreeMfProjectInfo? _selectedThreeMfInfo;
+  bool _loadingThreeMfInfo = false;
+  String? _selectedThreeMfPath;
   final List<String> _printDebugLog = <String>[];
   String? _pendingPrintSeq;
   int _pendingReportCount = 0;
@@ -117,6 +122,73 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
     });
   }
 
+  Future<void> _inspectSelectedThreeMf(String remotePath) async {
+    _setStateIfMounted(() {
+      _loadingThreeMfInfo = true;
+      _selectedThreeMfPath = remotePath;
+      _selectedThreeMfInfo = null;
+    });
+
+    Directory? tempDir;
+    try {
+      tempDir = await Directory.systemTemp.createTemp('boomprint_3mf_');
+      final basename = remotePath.split('/').last;
+      final localFile = File(
+        '${tempDir.path}${Platform.pathSeparator}$basename',
+      );
+      final downloaded = await _ftp.downloadFile(remotePath, localFile);
+      if (!downloaded) {
+        throw StateError('FTP download failed');
+      }
+
+      final parser = ThreeMfParser();
+      final info = await parser.parseBytes(await localFile.readAsBytes());
+      if (!mounted || _selectedThreeMfPath != remotePath) return;
+
+      _setStateIfMounted(() {
+        _selectedThreeMfInfo = info;
+        _loadingThreeMfInfo = false;
+        if (info != null) {
+          final matched = _matchFilamentOption(info);
+          if (matched != null) {
+            _selectedFilament = matched;
+          }
+        }
+      });
+    } catch (e) {
+      if (!mounted || _selectedThreeMfPath != remotePath) return;
+      _setStateIfMounted(() {
+        _selectedThreeMfInfo = null;
+        _loadingThreeMfInfo = false;
+      });
+      _logPrintDebug('3MF inspect failed for $remotePath: $e');
+    } finally {
+      try {
+        await tempDir?.delete(recursive: true);
+      } catch (_) {}
+    }
+  }
+
+  FilamentOption? _matchFilamentOption(ThreeMfProjectInfo info) {
+    final hints =
+        [
+              ...info.filamentHints,
+              ...info.plates.expand((plate) => plate.filamentHints),
+            ]
+            .map((value) => value.toLowerCase())
+            .where((value) => value.isNotEmpty)
+            .toList();
+    if (hints.isEmpty) return null;
+
+    for (final option in _filamentOptions) {
+      final label = option.label.toLowerCase();
+      if (hints.any((hint) => label.contains(hint.toLowerCase()))) {
+        return option;
+      }
+    }
+    return null;
+  }
+
   void _handleMqttReport(BambuReportEvent event) {
     final print = _asStringDynamicMap(event.json['print']);
     if (print != null) {
@@ -125,6 +197,9 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
         _setStateIfMounted(() {
           _filamentOptions = options;
           _selectedFilament ??= _selectCurrentFilament(print, options);
+          if (_selectedFilament == null && _selectedThreeMfInfo != null) {
+            _selectedFilament = _matchFilamentOption(_selectedThreeMfInfo!);
+          }
         });
       }
     }
@@ -297,11 +372,23 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
   Future<void> _enter(FtpEntry e) async {
     if (!e.isDir) {
       _setStateIfMounted(() => _selectedFile = e.path);
+      if (_isPrintablePath(e.path) && e.path.toLowerCase().endsWith('.3mf')) {
+        await _inspectSelectedThreeMf(e.path);
+      } else {
+        _setStateIfMounted(() {
+          _selectedThreeMfInfo = null;
+          _loadingThreeMfInfo = false;
+          _selectedThreeMfPath = null;
+        });
+      }
       return;
     }
     _setStateIfMounted(() {
       _cwd = e.path;
       _selectedFile = null;
+      _selectedThreeMfInfo = null;
+      _loadingThreeMfInfo = false;
+      _selectedThreeMfPath = null;
     });
     await _refresh();
   }
@@ -314,6 +401,9 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
     _setStateIfMounted(() {
       _cwd = parent;
       _selectedFile = null;
+      _selectedThreeMfInfo = null;
+      _loadingThreeMfInfo = false;
+      _selectedThreeMfPath = null;
     });
     await _refresh();
   }
@@ -408,6 +498,82 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
     }
   }
 
+  Widget _buildThreeMfMetadataPanel() {
+    final selectedFile = _selectedFile;
+    if (selectedFile == null || !selectedFile.toLowerCase().endsWith('.3mf')) {
+      return const SizedBox.shrink();
+    }
+
+    final info = _selectedThreeMfInfo;
+    if (_loadingThreeMfInfo || _selectedThreeMfPath != selectedFile) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 8),
+        child: LinearProgressIndicator(minHeight: 2),
+      );
+    }
+
+    if (info == null) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 8),
+        child: Text(
+          'No embedded 3MF metadata was extracted from this project.',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
+    final selectedLabel = _selectedFilament?.label;
+    final compatibilityWarning = selectedLabel == null
+        ? null
+        : info.compatibilityWarningFor(selectedLabel);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Embedded 3MF metadata',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              if (info.projectName != null && info.projectName!.isNotEmpty)
+                Text('Project: ${info.projectName}'),
+              if (info.printerProfile != null &&
+                  info.printerProfile!.isNotEmpty)
+                Text('Printer profile: ${info.printerProfile}'),
+              if (info.plateSummaries.isNotEmpty)
+                Text('Plates: ${info.plateSummaries.join(' | ')}'),
+              if (info.filamentHints.isNotEmpty)
+                Text('Filament hints: ${info.filamentHints.join(' | ')}'),
+              if (compatibilityWarning != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  compatibilityWarning,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              for (final warning in info.warnings) ...[
+                const SizedBox(height: 4),
+                Text(warning, style: const TextStyle(color: Colors.grey)),
+              ],
+              if (info.notes.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  info.notes.join(' • '),
+                  style: const TextStyle(color: Colors.grey),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _mqtt?.dispose();
@@ -423,15 +589,7 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
     if (!FeatureFlags.ftpBrowserEnabled) {
       return FramelessWindowResizeFrame(
         child: Scaffold(
-          appBar: AppBar(
-            title: const WindowDragArea(
-              child: SizedBox(
-                width: double.infinity,
-                child: Text('FTP Browser'),
-              ),
-            ),
-            actions: const [WindowControlButtons()],
-          ),
+          appBar: const WindowChromeHeader(title: Text('FTP Browser')),
           body: const Center(
             child: Text('FTP Browser is disabled for this build.'),
           ),
@@ -444,13 +602,10 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
 
     return FramelessWindowResizeFrame(
       child: Scaffold(
-        appBar: AppBar(
-          title: const WindowDragArea(
-            child: SizedBox(width: double.infinity, child: Text('FTP Browser')),
-          ),
+        appBar: WindowChromeHeader(
+          title: const Text('FTP Browser'),
           actions: [
             IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
-            const WindowControlButtons(),
           ],
         ),
         body: Column(
@@ -522,6 +677,7 @@ class _FtpBrowserPageState extends State<FtpBrowserPage> {
                       ),
                     ],
                   ),
+                  _buildThreeMfMetadataPanel(),
                   const SizedBox(height: 8),
                   Row(
                     children: [

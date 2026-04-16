@@ -1,0 +1,13 @@
+name: three_mf
+description: Parser and metadata helpers for Bambu-style 3MF project archives.
+version: 0.1.0
+
+environment:
+  sdk: ^3.9.0-15.0.dev
+
+dependencies:
+  archive: ^4.0.9
+  xml: ^6.6.1
+
+dev_dependencies:
+  test: ^1.25.8

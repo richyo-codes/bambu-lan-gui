@@ -5,10 +5,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:ftpconnect/ftpconnect.dart';
 import 'package:intl/intl.dart';
-import 'package:meta/meta.dart';
 import 'package:boomprint/bambu_lan.dart';
 
 class BambuFtp {
@@ -143,62 +143,6 @@ class BambuFtp {
     }
   }
 
-  Future<List<FtpEntry>> _listFtpsSecure(
-    String target, {
-    required Duration timeout,
-  }) async {
-    SecureSocket? control;
-    SecureSocket? data;
-    try {
-      control = await SecureSocket.connect(
-        config.printerIp,
-        config.ftpPort,
-        timeout: timeout,
-        onBadCertificate: (_) => true,
-      );
-      final reader = _FtpControlReader(control);
-      await reader.readResponse(timeout);
-      await _sendCommand(control, reader, 'PBSZ 0', timeout);
-      await _sendCommand(control, reader, 'PROT P', timeout);
-      await _sendCommand(control, reader, 'USER bblp', timeout);
-      await _sendCommand(control, reader, 'PASS ${config.accessCode}', timeout);
-
-      if (target != '/') {
-        await _sendCommand(control, reader, 'CWD $target', timeout);
-      }
-
-      final pasv = await _sendCommand(control, reader, 'PASV', timeout);
-      final endpoint = _parsePasvEndpoint(
-        pasv.message,
-        fallbackHost: config.printerIp,
-      );
-
-      data = await SecureSocket.connect(
-        endpoint.host,
-        endpoint.port,
-        timeout: timeout,
-        onBadCertificate: (_) => true,
-      );
-
-      await _sendCommand(control, reader, 'LIST', timeout);
-      final listing = await _readDataSocket(data, timeout);
-      await reader.readResponse(timeout);
-
-      final entries = parseLsResponse(listing, currentPath: target);
-      if (entries.isEmpty) {
-        throw FTPConnectException('FTP LIST returned no data');
-      }
-      return entries;
-    } finally {
-      try {
-        data?.destroy();
-      } catch (_) {}
-      try {
-        control?.destroy();
-      } catch (_) {}
-    }
-  }
-
   Future<_FtpReply> _sendCommand(
     SecureSocket socket,
     _FtpControlReader reader,
@@ -210,10 +154,7 @@ class BambuFtp {
     return reader.readResponse(timeout);
   }
 
-  Future<String> _readDataSocket(
-    SecureSocket socket,
-    Duration timeout,
-  ) async {
+  Future<String> _readDataSocket(SecureSocket socket, Duration timeout) async {
     final buffer = BytesBuilder();
     final completer = Completer<String>();
     late StreamSubscription<List<int>> sub;
@@ -231,10 +172,13 @@ class BambuFtp {
       },
     );
 
-    return completer.future.timeout(timeout, onTimeout: () {
-      sub.cancel();
-      throw TimeoutException('FTP data transfer timed out', timeout);
-    });
+    return completer.future.timeout(
+      timeout,
+      onTimeout: () {
+        sub.cancel();
+        throw TimeoutException('FTP data transfer timed out', timeout);
+      },
+    );
   }
 
   _PasvEndpoint _parsePasvEndpoint(
@@ -257,6 +201,11 @@ class BambuFtp {
     await ftp.createFolderIfNotExist(path);
   }
 
+  Future<bool> downloadFile(String remotePath, File localFile) async {
+    final ftp = await _get();
+    return ftp.downloadFile(remotePath, localFile);
+  }
+
   /// Upload a local file (by path) to a remote full path (including filename).
   Future<void> upload({
     required String localPath,
@@ -273,7 +222,6 @@ class BambuFtp {
     await ftp.uploadFileWithRetry(file, pRetryCount: 2);
   }
 
-  @visibleForTesting
   static List<FtpEntry> parseLsResponse(
     String message, {
     String currentPath = '/',
@@ -342,12 +290,12 @@ class _FtpControlReader {
   final StreamIterator<String> _lines;
 
   _FtpControlReader(SecureSocket socket)
-      : _lines = StreamIterator(
-          socket
-              .cast<List<int>>()
-              .transform(utf8.decoder)
-              .transform(const LineSplitter()),
-        );
+    : _lines = StreamIterator(
+        socket
+            .cast<List<int>>()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter()),
+      );
 
   Future<_FtpReply> readResponse(Duration timeout) async {
     final lines = <String>[];

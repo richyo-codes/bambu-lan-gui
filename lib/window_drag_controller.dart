@@ -6,8 +6,9 @@ import 'package:flutter/services.dart';
 
 class WindowChromeController {
   static const MethodChannel _channel = MethodChannel('app/window_style');
-  static final ValueNotifier<bool> useLinuxSystemDecorations =
-      ValueNotifier(false);
+  static final ValueNotifier<bool> useLinuxSystemDecorations = ValueNotifier(
+    false,
+  );
 
   static bool get supportsLinuxSystemDecorations => Platform.isLinux;
   static bool get useCustomWindowChrome =>
@@ -19,10 +20,9 @@ class WindowChromeController {
       return;
     }
     try {
-      await _channel.invokeMethod(
-        'setUseSystemDecorations',
-        {'enabled': enabled},
-      );
+      await _channel.invokeMethod('setUseSystemDecorations', {
+        'enabled': enabled,
+      });
     } catch (_) {
       // Best-effort native toggle; Flutter UI state still updates.
     }
@@ -282,6 +282,99 @@ class WindowDragArea extends StatelessWidget {
       onDoubleTap: () => WindowDragController.toggleMaximize(),
       onPanStart: (_) => WindowDragController.startDragging(),
       child: child,
+    );
+  }
+}
+
+class WindowChromeHeader extends StatelessWidget
+    implements PreferredSizeWidget {
+  const WindowChromeHeader({
+    super.key,
+    required this.title,
+    this.actions = const [],
+    this.actionPadding = const EdgeInsets.symmetric(horizontal: 12),
+    this.actionHeight = 52,
+  });
+
+  final Widget title;
+  final List<Widget> actions;
+  final EdgeInsetsGeometry actionPadding;
+  final double actionHeight;
+
+  @override
+  Size get preferredSize {
+    return Size.fromHeight(
+      kToolbarHeight + (actions.isEmpty ? 0 : actionHeight),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final surfaceColor =
+        theme.appBarTheme.backgroundColor ?? theme.colorScheme.surface;
+    final onSurface =
+        theme.appBarTheme.foregroundColor ?? theme.colorScheme.onSurface;
+
+    return Material(
+      color: surfaceColor,
+      elevation: theme.appBarTheme.elevation ?? 0,
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: kToolbarHeight,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: WindowDragArea(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: DefaultTextStyle(
+                            style:
+                                theme.appBarTheme.titleTextStyle ??
+                                theme.textTheme.titleLarge!.copyWith(
+                                  color: onSurface,
+                                ),
+                            child: title,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const WindowControlButtons(),
+                ],
+              ),
+            ),
+            if (actions.isNotEmpty)
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  border: Border(
+                    top: BorderSide(
+                      color: theme.dividerColor.withValues(alpha: 0.35),
+                    ),
+                  ),
+                ),
+                padding: actionPadding,
+                height: actionHeight,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: actions,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
