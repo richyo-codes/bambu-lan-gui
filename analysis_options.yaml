@@ -31,3 +31,5 @@ analyzer:
     - build/**
     #- **/build/**
     - build/flatpak/**
+    - .flatpak-builder
+    - .flatpak-builder/**
