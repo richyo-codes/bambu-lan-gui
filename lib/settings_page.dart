@@ -37,6 +37,8 @@ class _SettingsPageState extends State<SettingsPage> {
       TextEditingController();
   final TextEditingController genericRtspPortController =
       TextEditingController();
+  final TextEditingController cameraStreamCountController =
+      TextEditingController();
   bool _autoConnect = false;
   bool _mqttControlsEnabled = false;
   bool _lightControlsEnabled = false;
@@ -45,6 +47,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _genericRtspSecure = false;
   bool _checkingFirewall = false;
   ConnectionPreflightSummary? _lastConnectionCheck;
+  int _selectedCameraIndex = 0;
 
   PrinterUrlType selectedFormat = PrinterUrlType.bambuX1C;
 
@@ -63,6 +66,20 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadSettings();
   }
 
+  @override
+  void dispose() {
+    specialCodeController.dispose();
+    printerIpController.dispose();
+    serialNumberController.dispose();
+    genericRtspUsernameController.dispose();
+    genericRtspPasswordController.dispose();
+    genericRtspPathController.dispose();
+    genericRtspPortController.dispose();
+    cameraStreamCountController.dispose();
+    customUrlController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadSettings() async {
     final settings = await SettingsManager.loadSettings();
     specialCodeController.text = settings.specialCode;
@@ -73,7 +90,9 @@ class _SettingsPageState extends State<SettingsPage> {
     genericRtspPasswordController.text = settings.genericRtspPassword;
     genericRtspPathController.text = settings.genericRtspPath;
     genericRtspPortController.text = settings.genericRtspPort.toString();
+    cameraStreamCountController.text = settings.cameraStreamCount.toString();
     selectedFormat = settings.selectedFormat;
+    _selectedCameraIndex = settings.selectedCameraIndex;
     _autoConnect = settings.autoConnect;
     _mqttControlsEnabled = settings.mqttControlsEnabled;
     _lightControlsEnabled = settings.lightControlsEnabled;
@@ -109,6 +128,8 @@ class _SettingsPageState extends State<SettingsPage> {
       serialNumber: serialNumberController.text,
       selectedFormat: selectedFormat,
       customUrl: customUrlController.text,
+      cameraStreamCount: _resolveCameraStreamCount(),
+      selectedCameraIndex: _resolveSelectedCameraIndex(),
       genericRtspUsername: genericRtspUsernameController.text,
       genericRtspPassword: genericRtspPasswordController.text,
       genericRtspPath: genericRtspPathController.text,
@@ -120,6 +141,19 @@ class _SettingsPageState extends State<SettingsPage> {
       hardwareAccelerationEnabled: _hardwareAccelerationEnabled,
       linuxUseSystemWindowDecorations: _linuxUseSystemWindowDecorations,
     );
+  }
+
+  int _resolveCameraStreamCount() {
+    final parsed = int.tryParse(cameraStreamCountController.text.trim());
+    final fallback = selectedFormat.defaultCameraCount;
+    final count = parsed ?? fallback;
+    return count < 1 ? 1 : count;
+  }
+
+  int _resolveSelectedCameraIndex() {
+    final count = _resolveCameraStreamCount();
+    if (count <= 1) return 0;
+    return _selectedCameraIndex.clamp(0, count - 1).toInt();
   }
 
   Future<void> _applyImportedSettings(
@@ -135,7 +169,9 @@ class _SettingsPageState extends State<SettingsPage> {
       genericRtspPasswordController.text = imported.genericRtspPassword;
       genericRtspPathController.text = imported.genericRtspPath;
       genericRtspPortController.text = imported.genericRtspPort.toString();
+      cameraStreamCountController.text = imported.cameraStreamCount.toString();
       selectedFormat = imported.selectedFormat;
+      _selectedCameraIndex = imported.selectedCameraIndex;
       _genericRtspSecure = imported.genericRtspSecure;
       _autoConnect = imported.autoConnect;
       _mqttControlsEnabled = imported.mqttControlsEnabled;
@@ -169,6 +205,10 @@ class _SettingsPageState extends State<SettingsPage> {
       'serialNumber': pick('serialNumber', 'rtsp_serial_number'),
       'selectedFormat': pick('selectedFormat', 'rtsp_format', 'Bambu X1C'),
       'customUrl': pick('customUrl', 'rtsp_custom_url'),
+      'cameraStreamCount':
+          (m['cameraStreamCount'] ?? m['rtsp_camera_stream_count'] ?? 1),
+      'selectedCameraIndex':
+          (m['selectedCameraIndex'] ?? m['rtsp_selected_camera_index'] ?? 0),
       'genericRtspUsername': pick(
         'genericRtspUsername',
         'rtsp_generic_username',
@@ -708,6 +748,14 @@ class _SettingsPageState extends State<SettingsPage> {
                       onChanged: (PrinterUrlType? newValue) {
                         setState(() {
                           selectedFormat = newValue!;
+                          final defaultCount =
+                              selectedFormat.defaultCameraCount;
+                          if (selectedFormat.isBambuFamily &&
+                              _resolveCameraStreamCount() < defaultCount) {
+                            cameraStreamCountController.text = defaultCount
+                                .toString();
+                            _selectedCameraIndex = 0;
+                          }
                         });
                       },
                     ),
@@ -715,7 +763,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     // Show template variable inputs for Bambu X1C format
                     if (selectedFormat == PrinterUrlType.bambuX1C ||
-                        selectedFormat == PrinterUrlType.bambuP1S) ...[
+                        selectedFormat == PrinterUrlType.bambuP1S ||
+                        selectedFormat == PrinterUrlType.bambuX2D) ...[
                       TextFormField(
                         controller: specialCodeController,
                         decoration: const InputDecoration(
@@ -762,6 +811,52 @@ class _SettingsPageState extends State<SettingsPage> {
                           return null;
                         },
                       ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: cameraStreamCountController,
+                        decoration: InputDecoration(
+                          labelText: 'Camera Stream Count',
+                          hintText: selectedFormat == PrinterUrlType.bambuX2D
+                              ? '2'
+                              : '1',
+                        ),
+                        keyboardType: TextInputType.number,
+                        validator: (value) {
+                          final count = int.tryParse((value ?? '').trim());
+                          if (count == null || count < 1) {
+                            return 'Please enter a valid camera count';
+                          }
+                          return null;
+                        },
+                        onChanged: (_) {
+                          final count = _resolveCameraStreamCount();
+                          if (_selectedCameraIndex >= count) {
+                            setState(() {
+                              _selectedCameraIndex = count - 1;
+                            });
+                          }
+                        },
+                      ),
+                      if (_resolveCameraStreamCount() > 1) ...[
+                        const SizedBox(height: 10),
+                        DropdownButtonFormField<int>(
+                          value: _resolveSelectedCameraIndex(),
+                          decoration: const InputDecoration(
+                            labelText: 'Default Camera',
+                          ),
+                          items: List.generate(
+                            _resolveCameraStreamCount(),
+                            (i) => DropdownMenuItem<int>(
+                              value: i,
+                              child: Text('Camera ${i + 1}'),
+                            ),
+                          ),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() => _selectedCameraIndex = value);
+                          },
+                        ),
+                      ],
                       const SizedBox(height: 10),
                       const Text(
                         'Generated URL will be:',

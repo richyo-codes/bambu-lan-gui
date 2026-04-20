@@ -10,6 +10,8 @@ class AppSettings {
   String serialNumber;
   PrinterUrlType selectedFormat;
   String customUrl;
+  int cameraStreamCount;
+  int selectedCameraIndex;
   String genericRtspUsername;
   String genericRtspPassword;
   String genericRtspPath;
@@ -27,6 +29,8 @@ class AppSettings {
     required this.serialNumber,
     required this.selectedFormat,
     required this.customUrl,
+    this.cameraStreamCount = 1,
+    this.selectedCameraIndex = 0,
     this.genericRtspUsername = '',
     this.genericRtspPassword = '',
     this.genericRtspPath = '/stream',
@@ -39,6 +43,27 @@ class AppSettings {
     this.linuxUseSystemWindowDecorations = false,
   });
 
+  static AppSettings normalizeCameraFields(AppSettings settings) {
+    if (!settings.selectedFormat.isBambuFamily) {
+      settings.cameraStreamCount = 1;
+      settings.selectedCameraIndex = 0;
+      return settings;
+    }
+
+    final count =
+        settings.cameraStreamCount < settings.selectedFormat.defaultCameraCount
+        ? settings.selectedFormat.defaultCameraCount
+        : settings.cameraStreamCount;
+    settings.cameraStreamCount = count;
+    if (settings.selectedCameraIndex < 0) {
+      settings.selectedCameraIndex = 0;
+    }
+    if (settings.selectedCameraIndex >= count) {
+      settings.selectedCameraIndex = count - 1;
+    }
+    return settings;
+  }
+
   // JSON serialization
   Map<String, dynamic> toJson() => {
     'specialCode': specialCode,
@@ -46,6 +71,8 @@ class AppSettings {
     'serialNumber': serialNumber,
     'selectedFormat': selectedFormat.storageKey,
     'customUrl': customUrl,
+    'cameraStreamCount': cameraStreamCount,
+    'selectedCameraIndex': selectedCameraIndex,
     'genericRtspUsername': genericRtspUsername,
     'genericRtspPassword': genericRtspPassword,
     'genericRtspPath': genericRtspPath,
@@ -59,53 +86,66 @@ class AppSettings {
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
-    return AppSettings(
-      specialCode: (json['specialCode'] ?? '') as String,
-      printerIp: (json['printerIp'] ?? '') as String,
-      serialNumber: (json['serialNumber'] ?? '') as String,
-      selectedFormat: PrinterUrlTypeX.parse(
-        json['selectedFormat'] as String? ?? 'Bambu X1C',
+    return normalizeCameraFields(
+      AppSettings(
+        specialCode: (json['specialCode'] ?? '') as String,
+        printerIp: (json['printerIp'] ?? '') as String,
+        serialNumber: (json['serialNumber'] ?? '') as String,
+        selectedFormat: PrinterUrlTypeX.parse(
+          json['selectedFormat'] as String? ?? 'Bambu X1C',
+        ),
+        customUrl: (json['customUrl'] ?? '') as String,
+        cameraStreamCount: (json['cameraStreamCount'] is int)
+            ? json['cameraStreamCount'] as int
+            : int.tryParse('${json['cameraStreamCount'] ?? ''}') ?? 1,
+        selectedCameraIndex: (json['selectedCameraIndex'] is int)
+            ? json['selectedCameraIndex'] as int
+            : int.tryParse('${json['selectedCameraIndex'] ?? ''}') ?? 0,
+        genericRtspUsername: (json['genericRtspUsername'] ?? '') as String,
+        genericRtspPassword: (json['genericRtspPassword'] ?? '') as String,
+        genericRtspPath: (json['genericRtspPath'] ?? '/stream') as String,
+        genericRtspPort: (json['genericRtspPort'] is int)
+            ? json['genericRtspPort'] as int
+            : int.tryParse('${json['genericRtspPort'] ?? ''}') ?? 554,
+        genericRtspSecure: (json['genericRtspSecure'] ?? false) as bool,
+        autoConnect: (json['autoConnect'] ?? false) as bool,
+        mqttControlsEnabled: (json['mqttControlsEnabled'] ?? false) as bool,
+        lightControlsEnabled: (json['lightControlsEnabled'] ?? false) as bool,
+        hardwareAccelerationEnabled:
+            (json['hardwareAccelerationEnabled'] ?? true) as bool,
+        linuxUseSystemWindowDecorations:
+            (json['linuxUseSystemWindowDecorations'] ?? false) as bool,
       ),
-      customUrl: (json['customUrl'] ?? '') as String,
-      genericRtspUsername: (json['genericRtspUsername'] ?? '') as String,
-      genericRtspPassword: (json['genericRtspPassword'] ?? '') as String,
-      genericRtspPath: (json['genericRtspPath'] ?? '/stream') as String,
-      genericRtspPort: (json['genericRtspPort'] is int)
-          ? json['genericRtspPort'] as int
-          : int.tryParse('${json['genericRtspPort'] ?? ''}') ?? 554,
-      genericRtspSecure: (json['genericRtspSecure'] ?? false) as bool,
-      autoConnect: (json['autoConnect'] ?? false) as bool,
-      mqttControlsEnabled: (json['mqttControlsEnabled'] ?? false) as bool,
-      lightControlsEnabled: (json['lightControlsEnabled'] ?? false) as bool,
-      hardwareAccelerationEnabled:
-          (json['hardwareAccelerationEnabled'] ?? true) as bool,
-      linuxUseSystemWindowDecorations:
-          (json['linuxUseSystemWindowDecorations'] ?? false) as bool,
     );
   }
 
   static AppSettings fromPrefs(SharedPreferences prefs) {
-    return AppSettings(
-      specialCode: prefs.getString('rtsp_specialcode') ?? '',
-      printerIp: prefs.getString('rtsp_printerip') ?? '',
-      serialNumber: prefs.getString('rtsp_serial_number') ?? '',
-      selectedFormat: PrinterUrlTypeX.parse(
-        prefs.getString('rtsp_format') ?? 'Bambu X1C',
+    return normalizeCameraFields(
+      AppSettings(
+        specialCode: prefs.getString('rtsp_specialcode') ?? '',
+        printerIp: prefs.getString('rtsp_printerip') ?? '',
+        serialNumber: prefs.getString('rtsp_serial_number') ?? '',
+        selectedFormat: PrinterUrlTypeX.parse(
+          prefs.getString('rtsp_format') ?? 'Bambu X1C',
+        ),
+        customUrl: prefs.getString('rtsp_custom_url') ?? '',
+        cameraStreamCount: prefs.getInt('rtsp_camera_stream_count') ?? 1,
+        selectedCameraIndex: prefs.getInt('rtsp_selected_camera_index') ?? 0,
+        genericRtspUsername: prefs.getString('rtsp_generic_username') ?? '',
+        genericRtspPassword: prefs.getString('rtsp_generic_password') ?? '',
+        genericRtspPath: prefs.getString('rtsp_generic_path') ?? '/stream',
+        genericRtspPort: prefs.getInt('rtsp_generic_port') ?? 554,
+        genericRtspSecure: prefs.getBool('rtsp_generic_secure') ?? false,
+        autoConnect: prefs.getBool('rtsp_auto_connect') ?? false,
+        mqttControlsEnabled:
+            prefs.getBool('rtsp_mqtt_controls_enabled') ?? false,
+        lightControlsEnabled:
+            prefs.getBool('rtsp_light_controls_enabled') ?? false,
+        hardwareAccelerationEnabled:
+            prefs.getBool('rtsp_hardware_acceleration_enabled') ?? true,
+        linuxUseSystemWindowDecorations:
+            prefs.getBool('rtsp_linux_use_system_window_decorations') ?? false,
       ),
-      customUrl: prefs.getString('rtsp_custom_url') ?? '',
-      genericRtspUsername: prefs.getString('rtsp_generic_username') ?? '',
-      genericRtspPassword: prefs.getString('rtsp_generic_password') ?? '',
-      genericRtspPath: prefs.getString('rtsp_generic_path') ?? '/stream',
-      genericRtspPort: prefs.getInt('rtsp_generic_port') ?? 554,
-      genericRtspSecure: prefs.getBool('rtsp_generic_secure') ?? false,
-      autoConnect: prefs.getBool('rtsp_auto_connect') ?? false,
-      mqttControlsEnabled: prefs.getBool('rtsp_mqtt_controls_enabled') ?? false,
-      lightControlsEnabled:
-          prefs.getBool('rtsp_light_controls_enabled') ?? false,
-      hardwareAccelerationEnabled:
-          prefs.getBool('rtsp_hardware_acceleration_enabled') ?? true,
-      linuxUseSystemWindowDecorations:
-          prefs.getBool('rtsp_linux_use_system_window_decorations') ?? false,
     );
   }
 
@@ -116,6 +156,8 @@ class AppSettings {
     await prefs.setString('rtsp_serial_number', serialNumber);
     await prefs.setString('rtsp_format', selectedFormat.storageKey);
     await prefs.setString('rtsp_custom_url', customUrl);
+    await prefs.setInt('rtsp_camera_stream_count', cameraStreamCount);
+    await prefs.setInt('rtsp_selected_camera_index', selectedCameraIndex);
     await prefs.setString('rtsp_generic_username', genericRtspUsername);
     await prefs.setString('rtsp_generic_password', genericRtspPassword);
     await prefs.setString('rtsp_generic_path', genericRtspPath);
@@ -188,6 +230,8 @@ class SettingsManager {
     String? serialNumber,
     String? selectedFormat,
     String? customUrl,
+    int? cameraStreamCount,
+    int? selectedCameraIndex,
     String? genericRtspUsername,
     String? genericRtspPassword,
     String? genericRtspPath,
@@ -211,6 +255,8 @@ class SettingsManager {
           ? PrinterUrlTypeX.parse(selectedFormat)
           : base.selectedFormat,
       customUrl: customUrl?.isNotEmpty == true ? customUrl! : base.customUrl,
+      cameraStreamCount: cameraStreamCount ?? base.cameraStreamCount,
+      selectedCameraIndex: selectedCameraIndex ?? base.selectedCameraIndex,
       genericRtspUsername: genericRtspUsername?.isNotEmpty == true
           ? genericRtspUsername!
           : base.genericRtspUsername,
@@ -231,23 +277,28 @@ class SettingsManager {
           linuxUseSystemWindowDecorations ??
           base.linuxUseSystemWindowDecorations,
     );
+    AppSettings.normalizeCameraFields(next);
     if (customUrl != null && customUrl.trim().isNotEmpty) {
-      return AppSettings(
-        specialCode: next.specialCode,
-        printerIp: next.printerIp,
-        serialNumber: next.serialNumber,
-        selectedFormat: PrinterUrlType.custom,
-        customUrl: next.customUrl,
-        genericRtspUsername: next.genericRtspUsername,
-        genericRtspPassword: next.genericRtspPassword,
-        genericRtspPath: next.genericRtspPath,
-        genericRtspPort: next.genericRtspPort,
-        genericRtspSecure: next.genericRtspSecure,
-        autoConnect: next.autoConnect,
-        mqttControlsEnabled: next.mqttControlsEnabled,
-        lightControlsEnabled: next.lightControlsEnabled,
-        hardwareAccelerationEnabled: next.hardwareAccelerationEnabled,
-        linuxUseSystemWindowDecorations: next.linuxUseSystemWindowDecorations,
+      return AppSettings.normalizeCameraFields(
+        AppSettings(
+          specialCode: next.specialCode,
+          printerIp: next.printerIp,
+          serialNumber: next.serialNumber,
+          selectedFormat: PrinterUrlType.custom,
+          customUrl: next.customUrl,
+          cameraStreamCount: next.cameraStreamCount,
+          selectedCameraIndex: next.selectedCameraIndex,
+          genericRtspUsername: next.genericRtspUsername,
+          genericRtspPassword: next.genericRtspPassword,
+          genericRtspPath: next.genericRtspPath,
+          genericRtspPort: next.genericRtspPort,
+          genericRtspSecure: next.genericRtspSecure,
+          autoConnect: next.autoConnect,
+          mqttControlsEnabled: next.mqttControlsEnabled,
+          lightControlsEnabled: next.lightControlsEnabled,
+          hardwareAccelerationEnabled: next.hardwareAccelerationEnabled,
+          linuxUseSystemWindowDecorations: next.linuxUseSystemWindowDecorations,
+        ),
       );
     }
     return next;
@@ -260,6 +311,8 @@ class SettingsManager {
     String? overrideSerialNumber,
     String? overrideSelectedFormat,
     String? overrideCustomUrl,
+    int? overrideCameraStreamCount,
+    int? overrideSelectedCameraIndex,
     String? overrideGenericRtspUsername,
     String? overrideGenericRtspPassword,
     String? overrideGenericRtspPath,
@@ -285,6 +338,8 @@ class SettingsManager {
         serialNumber: overrideSerialNumber,
         selectedFormat: overrideSelectedFormat,
         customUrl: overrideCustomUrl,
+        cameraStreamCount: overrideCameraStreamCount,
+        selectedCameraIndex: overrideSelectedCameraIndex,
         genericRtspUsername: overrideGenericRtspUsername,
         genericRtspPassword: overrideGenericRtspPassword,
         genericRtspPath: overrideGenericRtspPath,
@@ -310,6 +365,8 @@ class SettingsManager {
       serialNumber: overrideSerialNumber,
       selectedFormat: overrideSelectedFormat,
       customUrl: overrideCustomUrl,
+      cameraStreamCount: overrideCameraStreamCount,
+      selectedCameraIndex: overrideSelectedCameraIndex,
       genericRtspUsername: overrideGenericRtspUsername,
       genericRtspPassword: overrideGenericRtspPassword,
       genericRtspPath: overrideGenericRtspPath,

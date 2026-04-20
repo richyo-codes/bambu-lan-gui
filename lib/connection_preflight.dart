@@ -75,7 +75,7 @@ class ConnectionPreflightSummary {
 }
 
 class ConnectionPreflight {
-  static String buildStreamUrl(AppSettings settings) {
+  static String buildStreamUrl(AppSettings settings, {int? cameraIndex}) {
     switch (settings.selectedFormat) {
       case PrinterUrlType.custom:
         return settings.customUrl.trim();
@@ -95,7 +95,9 @@ class ConnectionPreflight {
         return '$scheme://$userInfo$host:$port$normalizedPath';
       case PrinterUrlType.bambuX1C:
       case PrinterUrlType.bambuP1S:
-        return 'rtsps://bblp:${settings.specialCode}@${settings.printerIp}:322/streaming/live/1';
+      case PrinterUrlType.bambuX2D:
+        final cameraNumber = cameraIndex ?? (settings.selectedCameraIndex + 1);
+        return 'rtsps://bblp:${settings.specialCode}@${settings.printerIp}:322/streaming/live/$cameraNumber';
     }
   }
 
@@ -183,6 +185,7 @@ class ConnectionPreflight {
     switch (settings.selectedFormat) {
       case PrinterUrlType.bambuX1C:
       case PrinterUrlType.bambuP1S:
+      case PrinterUrlType.bambuX2D:
         return true;
       case PrinterUrlType.genericRtsp:
       case PrinterUrlType.custom:
@@ -194,6 +197,7 @@ class ConnectionPreflight {
     switch (settings.selectedFormat) {
       case PrinterUrlType.bambuX1C:
       case PrinterUrlType.bambuP1S:
+      case PrinterUrlType.bambuX2D:
         return 322;
       case PrinterUrlType.genericRtsp:
         return settings.genericRtspPort;

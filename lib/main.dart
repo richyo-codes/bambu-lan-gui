@@ -7,7 +7,7 @@ import 'package:boomprint/bambu_lan.dart';
 import 'package:boomprint/bambu_mqtt.dart';
 import 'package:boomprint/feature_flags.dart';
 import 'package:boomprint/connection_preflight.dart';
-import 'package:boomprint/printer_url_formats.dart';
+import 'package:boomprint/printer_camera_streams.dart';
 import 'package:boomprint/settings_manager.dart';
 import 'package:boomprint/printer_stream_manager.dart';
 import 'package:boomprint/monitoring_alerts.dart';
@@ -218,6 +218,8 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   late final Player player;
   late VideoController controller;
   String? currentStreamUrl;
+  List<PrinterCameraStream> _cameraStreams = const [];
+  int _selectedCameraIndex = 0;
   bool isStreaming = false;
   //final screenshotController = ScreenshotController();
 
@@ -426,6 +428,12 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     final settings = await SettingsManager.loadSettings();
     final prevHw = _hardwareAccelerationEnabled;
     final nextHw = settings.hardwareAccelerationEnabled;
+    final nextCameraStreams = buildPrinterCameraStreams(settings);
+    final nextCameraIndex = nextCameraStreams.isEmpty
+        ? 0
+        : settings.selectedCameraIndex
+              .clamp(0, nextCameraStreams.length - 1)
+              .toInt();
     await WindowChromeController.setLinuxSystemDecorations(
       settings.linuxUseSystemWindowDecorations,
     );
@@ -441,18 +449,42 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         }
       }
     }
+    final nextCameraUrl = nextCameraStreams.isEmpty
+        ? null
+        : nextCameraStreams[nextCameraIndex].url;
     setState(() {
       _mqttControlsEnabled = settings.mqttControlsEnabled;
       _lightControlsEnabled = settings.lightControlsEnabled;
       _hardwareAccelerationEnabled = nextHw;
+      _cameraStreams = nextCameraStreams;
+      _selectedCameraIndex = nextCameraIndex;
     });
+
+    if (isStreaming &&
+        nextCameraUrl != null &&
+        currentStreamUrl != nextCameraUrl) {
+      try {
+        await _openMediaAndEnsurePlaying(nextCameraUrl);
+        if (mounted) {
+          setState(() {
+            currentStreamUrl = nextCameraUrl;
+          });
+        }
+      } catch (_) {
+        // Keep current stream state; existing error handling will surface issues.
+      }
+    }
   }
 
   Future<void> _attemptAutoConnect() async {
     final settings = await SettingsManager.loadSettings();
     if (!settings.autoConnect) return;
-    final url = _buildStreamUrl(settings);
-    if (url == null || url.isEmpty) return;
+    final streams = buildPrinterCameraStreams(settings);
+    if (streams.isEmpty) return;
+    final selectedIndex = settings.selectedCameraIndex
+        .clamp(0, streams.length - 1)
+        .toInt();
+    final url = streams[selectedIndex].url;
     if (!mounted || isStreaming) return;
     _onConnect(url);
   }
@@ -491,9 +523,14 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Future<void> _startStream(String url) async {
+    final settings = SettingsManager.settings;
+    final streams = buildPrinterCameraStreams(settings);
+    final selectedIndex = streams.indexWhere((stream) => stream.url == url);
     setState(() {
       isStreaming = true;
       currentStreamUrl = url;
+      _cameraStreams = streams;
+      _selectedCameraIndex = selectedIndex >= 0 ? selectedIndex : 0;
     });
     _resetStallMonitor();
     // Load printer config from SharedPreferences using abstraction
@@ -1024,6 +1061,36 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     _startAutoplayKick(url);
   }
 
+  Future<void> _switchCamera(int cameraIndex) async {
+    if (!isStreaming ||
+        cameraIndex < 0 ||
+        cameraIndex >= _cameraStreams.length ||
+        cameraIndex == _selectedCameraIndex) {
+      return;
+    }
+    final nextStream = _cameraStreams[cameraIndex];
+    setState(() {
+      _selectedCameraIndex = cameraIndex;
+      currentStreamUrl = nextStream.url;
+    });
+    SettingsManager.updateSettings((settings) {
+      settings.selectedCameraIndex = cameraIndex;
+    });
+    final settings = SettingsManager.settings;
+    await SettingsManager.saveSettings(settings);
+    _resetStallMonitor();
+    try {
+      await _openMediaAndEnsurePlaying(nextStream.url);
+      _startStallMonitor();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Camera switch failed: $e')));
+      }
+    }
+  }
+
   void _startAutoplayKick(String url) {
     _autoplayKickTimer?.cancel();
     final startedAt = DateTime.now();
@@ -1159,10 +1226,38 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Widget _buildStreamActions({required bool compactLayout}) {
+    final hasMultipleCameras = _cameraStreams.length > 1;
     if (compactLayout) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (hasMultipleCameras) ...[
+            Row(
+              children: [
+                const Text('Camera'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButton<int>(
+                    value: _selectedCameraIndex,
+                    isExpanded: true,
+                    items: _cameraStreams
+                        .map(
+                          (stream) => DropdownMenuItem<int>(
+                            value: stream.index,
+                            child: Text(stream.label),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      _switchCamera(value);
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
           ElevatedButton.icon(
             onPressed: _stopStream,
             icon: const Icon(Icons.stop),
@@ -1214,6 +1309,34 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
 
     return Column(
       children: [
+        if (hasMultipleCameras) ...[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Camera:'),
+                const SizedBox(width: 12),
+                DropdownButton<int>(
+                  value: _selectedCameraIndex,
+                  items: _cameraStreams
+                      .map(
+                        (stream) => DropdownMenuItem<int>(
+                          value: stream.index,
+                          child: Text(stream.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    _switchCamera(value);
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
         Wrap(
           spacing: 12,
           runSpacing: 8,
@@ -1512,32 +1635,6 @@ String? _buildTitleSummary(BambuPrintStatus? ps) {
   }
   if (lines.isEmpty) return null;
   return lines.join(' • ');
-}
-
-String? _buildStreamUrl(AppSettings settings) {
-  if (settings.selectedFormat == PrinterUrlType.custom) {
-    return settings.customUrl.trim().isEmpty ? null : settings.customUrl.trim();
-  }
-  if (settings.selectedFormat == PrinterUrlType.genericRtsp) {
-    final host = settings.printerIp.trim();
-    if (host.isEmpty) return null;
-    final scheme = settings.genericRtspSecure ? 'rtsps' : 'rtsp';
-    final rawPath = settings.genericRtspPath.trim().isEmpty
-        ? '/stream'
-        : settings.genericRtspPath.trim();
-    final normalizedPath = rawPath.startsWith('/') ? rawPath : '/$rawPath';
-    final user = settings.genericRtspUsername.trim();
-    final pass = settings.genericRtspPassword;
-    final userInfo = user.isEmpty
-        ? ''
-        : '${Uri.encodeComponent(user)}:${Uri.encodeComponent(pass)}@';
-    return '$scheme://$userInfo$host:${settings.genericRtspPort}$normalizedPath';
-  }
-  final template = settings.selectedFormat.template;
-  if (template.isEmpty) return null;
-  return template
-      .replaceAll('\${specialcode}', settings.specialCode)
-      .replaceAll('\${printerip}', settings.printerIp);
 }
 
 BambuPrintStatus _mergePrintStatus(
