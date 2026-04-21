@@ -343,10 +343,18 @@ class BambuMqtt {
   /// Attempt to set a predefined speed profile. If a native profile command
   /// is unsupported on the target firmware, fall back to M220 percentage.
   Future<void> setSpeedProfile(BambuSpeedProfile profile) async {
-    // Placeholder for a potential native command; many firmwares expose
-    // only percentage control. If you know the exact payload, we can add it
-    // here. For now, map to an M220 percent.
-    await setSpeedPercent(profile.fallbackPercent);
+    final payload = {
+      'print': {
+        'sequence_id': (_seq++).toString(),
+        'command': 'print_speed',
+        'param': profile.mqttParam,
+      },
+    };
+    try {
+      await publishRequest(payload);
+    } catch (_) {
+      await setSpeedPercent(profile.fallbackPercent);
+    }
   }
 
   /// Convenience: LED control example (chamber light on/off)
@@ -508,6 +516,19 @@ extension BambuSpeedProfileX on BambuSpeedProfile {
         return 150;
       case BambuSpeedProfile.ludicrous:
         return 200;
+    }
+  }
+
+  String get mqttParam {
+    switch (this) {
+      case BambuSpeedProfile.silent:
+        return '1';
+      case BambuSpeedProfile.standard:
+        return '2';
+      case BambuSpeedProfile.sport:
+        return '3';
+      case BambuSpeedProfile.ludicrous:
+        return '4';
     }
   }
 }

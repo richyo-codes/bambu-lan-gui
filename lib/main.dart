@@ -7,12 +7,12 @@ import 'package:boomprint/bambu_lan.dart';
 import 'package:boomprint/bambu_mqtt.dart';
 import 'package:boomprint/feature_flags.dart';
 import 'package:boomprint/connection_preflight.dart';
-import 'package:boomprint/printer_camera_streams.dart';
+import 'package:boomprint/connection_controller.dart';
 import 'package:boomprint/printer_firmware.dart';
 import 'package:boomprint/settings_manager.dart';
-import 'package:boomprint/printer_stream_manager.dart';
 import 'package:boomprint/monitoring_alerts.dart';
 import 'package:boomprint/sensitive_auth.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'settings_page.dart';
 import 'mqtt_control_page.dart';
@@ -176,25 +176,28 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final app = MaterialApp(
-      title: AppStrings.appDisplayName,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-          brightness: Brightness.light,
+    final app = ChangeNotifierProvider(
+      create: (_) => ConnectionController(),
+      child: MaterialApp(
+        title: AppStrings.appDisplayName,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.blue,
+            brightness: Brightness.light,
+          ),
+          useMaterial3: true,
         ),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-          brightness: Brightness.dark,
+        darkTheme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.blue,
+            brightness: Brightness.dark,
+          ),
+          useMaterial3: true,
         ),
-        useMaterial3: true,
+        themeMode: ThemeMode.system,
+        home: const StreamPage(),
+        debugShowCheckedModeBanner: false,
       ),
-      themeMode: ThemeMode.system,
-      home: const StreamPage(),
-      debugShowCheckedModeBanner: false,
     );
 
     if (rootBoundaryKey == null) {
@@ -219,24 +222,10 @@ bool isAccelSupported({TargetPlatform? platformOverride}) {
 class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   late final Player player;
   late VideoController controller;
-  String? currentStreamUrl;
-  List<PrinterCameraStream> _cameraStreams = const [];
-  int _selectedCameraIndex = 0;
-  bool isStreaming = false;
   //final screenshotController = ScreenshotController();
-
-  BambuMqtt? mqttClient;
-  String printerStatus = 'Unknown'; // Example field to show printer data
-  BambuPrintStatus? _lastPrintStatus; // Detailed metrics for UI
-  String? _firmwareVersion;
-  PrinterFirmwareWarning? _firmwareWarning;
-  bool? _chamberLightOn;
-  bool? _pendingChamberLightOn;
-  DateTime? _pendingLightConfirmationUntil;
   bool _autoLightWhilePrinting = false;
   bool _wasPrinting = false;
-  bool _mqttConnected = false;
-  String _lightNode = 'chamber_light';
+  bool _speedCommandBusy = false;
   bool _mqttControlsEnabled = false;
   bool _hardwareAccelerationEnabled = true;
 
@@ -265,9 +254,10 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   Timer? _controlsHideTimer;
   Timer? _autoplayKickTimer;
   Timer? _resumeProbeTimer;
-  Timer? _lightConfirmTimer;
-  StreamSubscription<BambuReportEvent>? _mqttReportSub;
-  static const Duration _lightConfirmDelay = Duration(seconds: 4);
+  ConnectionController? _listeningController;
+  BambuPrintStatus? _lastObservedPrintStatus;
+
+  ConnectionController get _connection => context.read<ConnectionController>();
 
   Future<Directory> _resolveScreenshotDir() async {
     try {
@@ -348,45 +338,16 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Future<void> _setChamberLight(bool on, {bool showErrors = true}) async {
-    final client = mqttClient;
-    if (client == null || !client.isConnected) {
-      if (showErrors && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('MQTT not connected yet.')),
-        );
-      }
-      return;
-    }
-    try {
-      await client.setChamberLight(on, ledNode: _lightNode);
-      if (mounted) {
-        setState(() {
-          _chamberLightOn = on;
-          _pendingChamberLightOn = on;
-          _pendingLightConfirmationUntil = DateTime.now().add(
-            _lightConfirmDelay,
-          );
-        });
-      }
-      _lightConfirmTimer?.cancel();
-      _lightConfirmTimer = Timer(_lightConfirmDelay, () {
-        if (!mounted || _pendingChamberLightOn != on) return;
-        mqttClient?.requestPushAll().catchError((_) {});
-      });
-    } catch (e) {
-      _lightConfirmTimer?.cancel();
-      _pendingChamberLightOn = null;
-      _pendingLightConfirmationUntil = null;
-      if (showErrors && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Light command failed: $e')));
-      }
+    final error = await _connection.setChamberLight(on);
+    if (error != null && showErrors && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
     }
   }
 
   void _toggleChamberLight() {
-    final target = !(_chamberLightOn ?? false);
+    final target = !(_connection.chamberLightOn ?? false);
     _setChamberLight(target);
   }
 
@@ -406,22 +367,123 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     final shouldEnable =
         _autoLightWhilePrinting && printing && (force || !_wasPrinting);
     _wasPrinting = printing;
-    if (shouldEnable && _chamberLightOn != true) {
+    if (shouldEnable && _connection.chamberLightOn != true) {
       _setChamberLight(true, showErrors: false);
     }
   }
 
   String _lightStatusLabel() {
-    if (_chamberLightOn == null) return 'Light Unknown';
-    final nodeLabel = _lightNode == 'work_light' ? 'Work' : 'Chamber';
-    return _chamberLightOn! ? '$nodeLabel Light On' : '$nodeLabel Light Off';
+    return _connection.lightStatusLabel();
   }
 
-  void _clearPendingLightConfirmation() {
-    _lightConfirmTimer?.cancel();
-    _lightConfirmTimer = null;
-    _pendingChamberLightOn = null;
-    _pendingLightConfirmationUntil = null;
+  int _currentSpeedPercent(BambuPrintStatus? ps) {
+    final mag = ps?.speedMag;
+    if (mag != null && mag > 0) {
+      return mag;
+    }
+    return 100;
+  }
+
+  BambuSpeedProfile _currentSpeedProfile(BambuPrintStatus? ps) {
+    final level = ps?.speedLevel;
+    switch (level) {
+      case 1:
+        return BambuSpeedProfile.silent;
+      case 2:
+        return BambuSpeedProfile.standard;
+      case 3:
+        return BambuSpeedProfile.sport;
+      case 4:
+        return BambuSpeedProfile.ludicrous;
+    }
+
+    final percent = _currentSpeedPercent(ps);
+    if (percent <= 80) return BambuSpeedProfile.silent;
+    if (percent >= 180) return BambuSpeedProfile.ludicrous;
+    if (percent >= 130) return BambuSpeedProfile.sport;
+    return BambuSpeedProfile.standard;
+  }
+
+  Future<void> _setSpeedProfile(BambuSpeedProfile profile) async {
+    if (_speedCommandBusy) return;
+    setState(() => _speedCommandBusy = true);
+    try {
+      final error = await _connection.setSpeedProfile(profile);
+      if (error != null && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
+      } else {
+        _connection.requestPushAll();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _speedCommandBusy = false);
+      }
+    }
+  }
+
+  Widget _buildSpeedControls({
+    required BuildContext context,
+    required BambuPrintStatus? printStatus,
+    required bool compactLayout,
+  }) {
+    final currentProfile = _currentSpeedProfile(printStatus);
+    final currentPercent = _currentSpeedPercent(printStatus);
+    final enabled = _connection.mqttConnected && !_speedCommandBusy;
+    final button = IgnorePointer(
+      child: OutlinedButton.icon(
+        onPressed: enabled ? () {} : null,
+        icon: _speedCommandBusy
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.speed),
+        label: Text('${currentProfile.label} $currentPercent%'),
+        style: compactLayout
+            ? OutlinedButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+              )
+            : null,
+      ),
+    );
+
+    if (!enabled) {
+      return button;
+    }
+
+    return PopupMenuButton<BambuSpeedProfile>(
+      tooltip: 'Change print speed',
+      onSelected: _setSpeedProfile,
+      itemBuilder: (context) => BambuSpeedProfile.values
+          .map(
+            (profile) => PopupMenuItem<BambuSpeedProfile>(
+              value: profile,
+              child: Row(
+                children: [
+                  Icon(
+                    profile == currentProfile
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text('${profile.label} ${profile.fallbackPercent}%'),
+                  ),
+                ],
+              ),
+            ),
+          )
+          .toList(),
+      child: button,
+    );
   }
 
   @override
@@ -434,10 +496,12 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     );
 
     player = Player(configuration: config);
+    _listeningController = _connection;
+    _listeningController!.addListener(_handleConnectionStateChanged);
     _rebuildVideoController();
     _setupPlayerListeners();
-    _loadUiSettings();
-    _attemptAutoConnect();
+    unawaited(_loadUiSettings());
+    unawaited(_attemptAutoConnect());
     unawaited(MonitoringAlerts.requestAndroidNotificationPermission());
   }
 
@@ -453,15 +517,11 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Future<void> _loadUiSettings() async {
+    final connection = _connection;
     final settings = await SettingsManager.loadSettings();
     final prevHw = _hardwareAccelerationEnabled;
     final nextHw = settings.hardwareAccelerationEnabled;
-    final nextCameraStreams = buildPrinterCameraStreams(settings);
-    final nextCameraIndex = nextCameraStreams.isEmpty
-        ? 0
-        : settings.selectedCameraIndex
-              .clamp(0, nextCameraStreams.length - 1)
-              .toInt();
+    await connection.refreshCameraStreamsFromSettings();
     await WindowChromeController.setLinuxSystemDecorations(
       settings.linuxUseSystemWindowDecorations,
     );
@@ -469,34 +529,27 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     if (prevHw != nextHw) {
       _hardwareAccelerationEnabled = nextHw;
       _rebuildVideoController();
-      if (isStreaming && currentStreamUrl != null) {
+      if (connection.isStreaming && connection.currentStreamUrl != null) {
         try {
-          await _openMediaAndEnsurePlaying(currentStreamUrl!);
+          await _openMediaAndEnsurePlaying(connection.currentStreamUrl!);
         } catch (_) {
           // Keep current stream state; existing error handling will surface issues.
         }
       }
     }
-    final nextCameraUrl = nextCameraStreams.isEmpty
+    final nextCameraUrl = connection.cameraStreams.isEmpty
         ? null
-        : nextCameraStreams[nextCameraIndex].url;
+        : connection.cameraStreams[connection.selectedCameraIndex].url;
     setState(() {
       _mqttControlsEnabled = settings.mqttControlsEnabled;
       _hardwareAccelerationEnabled = nextHw;
-      _cameraStreams = nextCameraStreams;
-      _selectedCameraIndex = nextCameraIndex;
     });
 
-    if (isStreaming &&
+    if (connection.isStreaming &&
         nextCameraUrl != null &&
-        currentStreamUrl != nextCameraUrl) {
+        connection.currentStreamUrl != nextCameraUrl) {
       try {
         await _openMediaAndEnsurePlaying(nextCameraUrl);
-        if (mounted) {
-          setState(() {
-            currentStreamUrl = nextCameraUrl;
-          });
-        }
       } catch (_) {
         // Keep current stream state; existing error handling will surface issues.
       }
@@ -504,15 +557,8 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Future<void> _attemptAutoConnect() async {
-    final settings = await SettingsManager.loadSettings();
-    if (!settings.autoConnect) return;
-    final streams = buildPrinterCameraStreams(settings);
-    if (streams.isEmpty) return;
-    final selectedIndex = settings.selectedCameraIndex
-        .clamp(0, streams.length - 1)
-        .toInt();
-    final url = streams[selectedIndex].url;
-    if (!mounted || isStreaming) return;
+    final url = await _connection.autoConnectUrl();
+    if (!mounted || url == null) return;
     _onConnect(url);
   }
 
@@ -528,11 +574,21 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     _controlsHideTimer?.cancel();
     _autoplayKickTimer?.cancel();
     _resumeProbeTimer?.cancel();
-    _lightConfirmTimer?.cancel();
-    _mqttReportSub?.cancel();
+    _listeningController?.removeListener(_handleConnectionStateChanged);
     player.dispose();
-    mqttClient?.dispose();
+    unawaited(_connection.disposeController());
     super.dispose();
+  }
+
+  void _handleConnectionStateChanged() {
+    final current = _connection.lastPrintStatus;
+    if (current != null && current != _lastObservedPrintStatus) {
+      _notifyForPrintStateTransition(_lastObservedPrintStatus, current);
+      _handleAutoLight(current);
+      _lastObservedPrintStatus = current;
+    } else if (current == null) {
+      _lastObservedPrintStatus = null;
+    }
   }
 
   @override
@@ -551,21 +607,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Future<void> _startStream(String url) async {
-    final settings = SettingsManager.settings;
-    final streams = buildPrinterCameraStreams(settings);
-    final selectedIndex = streams.indexWhere((stream) => stream.url == url);
-    setState(() {
-      isStreaming = true;
-      currentStreamUrl = url;
-      _cameraStreams = streams;
-      _selectedCameraIndex = selectedIndex >= 0 ? selectedIndex : 0;
-    });
+    final connection = _connection;
+    await connection.startStreaming(url);
     _resetStallMonitor();
-    // Load printer config from SharedPreferences using abstraction
-    final printerSettings = await PrinterStreamManager.getPrinterSettings();
-    final printerIp = printerSettings.printerIp;
-    final accessCode = printerSettings.accessCode;
-    final serial = printerSettings.serialNumber;
 
     // Start video stream first (independent of MQTT)
     try {
@@ -576,37 +620,19 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Failed to start stream: $e')));
-        setState(() {
-          isStreaming = false;
-        });
+        await connection.stopStreaming();
       }
       return;
     }
-
-    unawaited(
-      _connectMqtt(
-        printerIp: printerIp,
-        accessCode: accessCode,
-        serial: serial,
-      ),
-    );
   }
 
   Future<void> _stopStream() async {
     await player.stop();
     _resumeProbeTimer?.cancel();
-    await _disposeMqtt();
+    await _connection.stopStreaming();
     _stallTimer?.cancel();
     setState(() {
-      isStreaming = false;
-      currentStreamUrl = null;
-      printerStatus = 'Unknown';
-      _lastPrintStatus = null;
-      _firmwareVersion = null;
-      _firmwareWarning = null;
-      _chamberLightOn = null;
       _wasPrinting = false;
-      _mqttConnected = false;
     });
   }
 
@@ -619,11 +645,12 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Future<void> _handleAppResumed() async {
-    if (!isStreaming || currentStreamUrl == null) {
+    final connection = _connection;
+    if (!connection.isStreaming || connection.currentStreamUrl == null) {
       return;
     }
 
-    final url = currentStreamUrl!;
+    final url = connection.currentStreamUrl!;
     _lastPosition = player.state.position;
     _lastProgressAt = DateTime.now();
 
@@ -637,26 +664,17 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     _startStallMonitor();
     _scheduleResumeProbe(url);
 
-    if (!_mqttConnected) {
-      final settings = await PrinterStreamManager.getPrinterSettings();
-      unawaited(
-        _connectMqtt(
-          printerIp: settings.printerIp,
-          accessCode: settings.accessCode,
-          serial: settings.serialNumber,
-          showErrors: false,
-        ),
-      );
-    } else {
-      mqttClient?.requestPushAll().catchError((_) {});
-    }
+    unawaited(connection.reconnectMqttIfNeeded());
   }
 
   void _scheduleResumeProbe(String url) {
     _resumeProbeTimer?.cancel();
     final probePosition = player.state.position;
     _resumeProbeTimer = Timer(const Duration(seconds: 2), () {
-      if (!mounted || !isStreaming || currentStreamUrl != url) {
+      final connection = _connection;
+      if (!mounted ||
+          !connection.isStreaming ||
+          connection.currentStreamUrl != url) {
         return;
       }
       final state = player.state;
@@ -670,121 +688,6 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         resetAttempts: true,
       );
     });
-  }
-
-  Future<void> _disposeMqtt() async {
-    await _mqttReportSub?.cancel();
-    _mqttReportSub = null;
-    final client = mqttClient;
-    mqttClient = null;
-    if (client != null) {
-      await client.dispose();
-    }
-  }
-
-  Future<void> _connectMqtt({
-    required String printerIp,
-    required String accessCode,
-    required String? serial,
-    bool showErrors = true,
-  }) async {
-    await _disposeMqtt();
-
-    final config = BambuLanConfig(
-      printerIp: printerIp,
-      accessCode: accessCode,
-      serial: serial,
-      mqttPort: 8883,
-      allowBadCerts: true,
-    );
-    final client = BambuMqtt(config);
-    mqttClient = client;
-
-    try {
-      await client.connect();
-      if (!mounted || mqttClient != client) {
-        await client.dispose();
-        return;
-      }
-      setState(() {
-        _mqttConnected = true;
-        if (_lastPrintStatus == null) {
-          printerStatus = 'MQTT Connected';
-        }
-      });
-      _mqttReportSub = client.reportStream.listen(_handleMqttReportEvent);
-      client.requestPushAll().catchError((_) {});
-    } catch (e) {
-      if (mqttClient == client) {
-        mqttClient = null;
-      }
-      await client.dispose();
-      if (!mounted) return;
-      if (showErrors) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('MQTT connection failed: $e')));
-      }
-      setState(() {
-        printerStatus = 'MQTT Disconnected';
-        _mqttConnected = false;
-      });
-    }
-  }
-
-  void _handleMqttReportEvent(BambuReportEvent event) {
-    if (!mounted) return;
-    final detectedNode = _detectLightNode(event.json);
-    if (detectedNode != null) {
-      _lightNode = detectedNode;
-    }
-    if (event.firmwareVersion != null &&
-        event.firmwareVersion!.trim().isNotEmpty) {
-      _firmwareVersion = event.firmwareVersion!.trim();
-    }
-    final firmwareWarning = evaluateFirmwareWarning(_firmwareVersion);
-    final lightState = _extractLightStateForNode(event.json, _lightNode);
-    final pendingLight = _pendingChamberLightOn;
-    final confirmUntil = _pendingLightConfirmationUntil;
-    final now = DateTime.now();
-    setState(() {
-      if (event.printStatus != null) {
-        final previous = _lastPrintStatus;
-        final merged = _mergePrintStatus(event.printStatus!, previous);
-        final pct = merged.percent != null ? '${merged.percent}%' : '';
-        final left = merged.remainingMinutes != null
-            ? ' • ${merged.remainingMinutes}m left'
-            : '';
-        printerStatus =
-            '${merged.gcodeState}${pct.isNotEmpty ? ' $pct' : ''}$left';
-        _lastPrintStatus = merged;
-        _notifyForPrintStateTransition(previous, merged);
-      } else if (event.type != null && event.type != 'SYSTEM') {
-        printerStatus = event.type!;
-      }
-      if (lightState != null) {
-        final waitingForConfirm =
-            pendingLight != null &&
-            lightState != pendingLight &&
-            confirmUntil != null &&
-            now.isBefore(confirmUntil);
-        if (!waitingForConfirm) {
-          _chamberLightOn = lightState;
-          if (pendingLight != null && lightState == pendingLight) {
-            _clearPendingLightConfirmation();
-          } else if (confirmUntil == null || now.isAfter(confirmUntil)) {
-            _clearPendingLightConfirmation();
-          }
-        }
-      }
-      _firmwareWarning = firmwareWarning;
-      if (!_mqttConnected) {
-        _mqttConnected = true;
-      }
-    });
-    if (event.printStatus != null) {
-      _handleAutoLight(_lastPrintStatus!);
-    }
   }
 
   void _notifyForPrintStateTransition(
@@ -1020,7 +923,10 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   void _startStallMonitor() {
     _stallTimer?.cancel();
     _stallTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      if (!isStreaming || currentStreamUrl == null) return;
+      final connection = _connection;
+      if (!connection.isStreaming || connection.currentStreamUrl == null) {
+        return;
+      }
       final state = player.state;
       // Only consider stalls while playing & not buffering.
       if (!state.playing || state.buffering) return;
@@ -1048,7 +954,8 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     bool immediate = false,
     bool resetAttempts = false,
   }) {
-    if (_reconnecting || currentStreamUrl == null) return;
+    final connection = _connection;
+    if (_reconnecting || connection.currentStreamUrl == null) return;
     if (resetAttempts) {
       _reconnectAttempts = 0;
     }
@@ -1079,12 +986,12 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     }
 
     Future.delayed(Duration(seconds: delaySeconds), () async {
-      if (!isStreaming || currentStreamUrl == null) {
+      if (!connection.isStreaming || connection.currentStreamUrl == null) {
         _reconnecting = false;
         return;
       }
       try {
-        await _openMediaAndEnsurePlaying(currentStreamUrl!);
+        await _openMediaAndEnsurePlaying(connection.currentStreamUrl!);
         _reconnectAttempts = 0;
         _reconnecting = false;
         _lastPosition = Duration.zero;
@@ -1113,25 +1020,18 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Future<void> _switchCamera(int cameraIndex) async {
-    if (!isStreaming ||
+    final connection = _connection;
+    if (!connection.isStreaming ||
         cameraIndex < 0 ||
-        cameraIndex >= _cameraStreams.length ||
-        cameraIndex == _selectedCameraIndex) {
+        cameraIndex >= connection.cameraStreams.length ||
+        cameraIndex == connection.selectedCameraIndex) {
       return;
     }
-    final nextStream = _cameraStreams[cameraIndex];
-    setState(() {
-      _selectedCameraIndex = cameraIndex;
-      currentStreamUrl = nextStream.url;
-    });
-    SettingsManager.updateSettings((settings) {
-      settings.selectedCameraIndex = cameraIndex;
-    });
-    final settings = SettingsManager.settings;
-    await SettingsManager.saveSettings(settings);
+    final nextStream = await connection.switchCameraSelection(cameraIndex);
+    if (nextStream == null) return;
     _resetStallMonitor();
     try {
-      await _openMediaAndEnsurePlaying(nextStream.url);
+      await _openMediaAndEnsurePlaying(nextStream);
       _startStallMonitor();
     } catch (e) {
       if (mounted) {
@@ -1148,7 +1048,10 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     _autoplayKickTimer = Timer.periodic(const Duration(milliseconds: 350), (
       timer,
     ) async {
-      if (!mounted || !isStreaming || currentStreamUrl != url) {
+      final connection = _connection;
+      if (!mounted ||
+          !connection.isStreaming ||
+          connection.currentStreamUrl != url) {
         timer.cancel();
         return;
       }
@@ -1211,6 +1114,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Widget _buildVideoSurface({required bool compactLayout}) {
+    final connection = context.watch<ConnectionController>();
     return MouseRegion(
       onEnter: (_) {
         setState(() {
@@ -1229,11 +1133,11 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         child: Stack(
           children: [
             Positioned.fill(child: Video(controller: controller)),
-            if (_lastPrintStatus != null)
+            if (connection.lastPrintStatus != null)
               Positioned(
                 left: 12,
                 top: 12,
-                child: _PrintOverlayStatus(status: _lastPrintStatus),
+                child: _PrintOverlayStatus(status: connection.lastPrintStatus),
               ),
             Positioned.fill(
               child: IgnorePointer(
@@ -1277,13 +1181,17 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Widget _buildStreamActions({required bool compactLayout}) {
-    final hasMultipleCameras = _cameraStreams.length > 1;
+    final connection = context.watch<ConnectionController>();
+    final hasMultipleCameras = connection.cameraStreams.length > 1;
+    final printStatus = connection.lastPrintStatus;
     final lightButton = OutlinedButton.icon(
-      onPressed: (_mqttConnected || _chamberLightOn != null)
+      onPressed: (connection.mqttConnected || connection.chamberLightOn != null)
           ? _toggleChamberLight
           : null,
       icon: Icon(
-        _chamberLightOn == true ? Icons.lightbulb : Icons.lightbulb_outline,
+        connection.chamberLightOn == true
+            ? Icons.lightbulb
+            : Icons.lightbulb_outline,
       ),
       label: Text(_lightStatusLabel()),
     );
@@ -1311,7 +1219,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               onChanged: (value) {
                 setState(() => _autoLightWhilePrinting = value);
-                final ps = _lastPrintStatus;
+                final ps = connection.lastPrintStatus;
                 if (value && ps != null) {
                   _handleAutoLight(ps, force: true);
                 }
@@ -1332,9 +1240,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                 const SizedBox(width: 12),
                 Expanded(
                   child: DropdownButton<int>(
-                    value: _selectedCameraIndex,
+                    value: connection.selectedCameraIndex,
                     isExpanded: true,
-                    items: _cameraStreams
+                    items: connection.cameraStreams
                         .map(
                           (stream) => DropdownMenuItem<int>(
                             value: stream.index,
@@ -1373,6 +1281,12 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
           lightButton,
           const SizedBox(height: 8),
           Align(alignment: Alignment.centerLeft, child: autoLightToggle),
+          const SizedBox(height: 8),
+          _buildSpeedControls(
+            context: context,
+            printStatus: printStatus,
+            compactLayout: compactLayout,
+          ),
         ],
       );
     }
@@ -1399,9 +1313,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                   const Text('Camera'),
                   const SizedBox(width: 8),
                   DropdownButton<int>(
-                    value: _selectedCameraIndex,
+                    value: connection.selectedCameraIndex,
                     underline: const SizedBox.shrink(),
-                    items: _cameraStreams
+                    items: connection.cameraStreams
                         .map(
                           (stream) => DropdownMenuItem<int>(
                             value: stream.index,
@@ -1435,6 +1349,11 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         ),
         lightButton,
         autoLightToggle,
+        _buildSpeedControls(
+          context: context,
+          printStatus: printStatus,
+          compactLayout: compactLayout,
+        ),
       ],
     );
   }
@@ -1443,9 +1362,10 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     BuildContext context, {
     required bool compactLayout,
   }) {
-    final firmwareBanner = _firmwareWarning == null
+    final connection = context.watch<ConnectionController>();
+    final firmwareBanner = connection.firmwareWarning == null
         ? null
-        : _buildFirmwareWarningBanner(context, _firmwareWarning!);
+        : _buildFirmwareWarningBanner(context, connection.firmwareWarning!);
     final videoPane = Column(
       children: [
         Expanded(
@@ -1467,10 +1387,10 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
               minHeight: 4,
             ),
           ),
-        if (!compactLayout && _lastPrintStatus != null)
+        if (!compactLayout && connection.lastPrintStatus != null)
           Padding(
             padding: const EdgeInsets.all(8),
-            child: _MetricsPanel(ps: _lastPrintStatus!),
+            child: _MetricsPanel(ps: connection.lastPrintStatus!),
           ),
       ],
     );
@@ -1499,9 +1419,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            if (_lastPrintStatus != null)
-                              _MetricsPanel(ps: _lastPrintStatus!),
-                            if (_lastPrintStatus != null)
+                            if (connection.lastPrintStatus != null)
+                              _MetricsPanel(ps: connection.lastPrintStatus!),
+                            if (connection.lastPrintStatus != null)
                               const SizedBox(height: 12),
                             _buildStreamActions(compactLayout: true),
                           ],
@@ -1662,7 +1582,8 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final titleSummary = _buildTitleSummary(_lastPrintStatus);
+    final connection = context.watch<ConnectionController>();
+    final titleSummary = _buildTitleSummary(connection.lastPrintStatus);
     final compactLandscape = _isMobileLandscape(context);
 
     return FramelessWindowResizeFrame(
@@ -1704,7 +1625,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
             ),
           ],
         ),
-        body: isStreaming
+        body: connection.isStreaming
             ? _buildStreamingBody(context, compactLayout: compactLandscape)
             : _buildDisconnectedBody(),
       ),
@@ -1761,183 +1682,6 @@ String? _buildTitleSummary(BambuPrintStatus? ps) {
   }
   if (lines.isEmpty) return null;
   return lines.join(' • ');
-}
-
-BambuPrintStatus _mergePrintStatus(
-  BambuPrintStatus incoming,
-  BambuPrintStatus? previous,
-) {
-  if (previous == null) return incoming;
-  String pickString(String? next, String? prev) =>
-      (next != null && next.isNotEmpty) ? next : (prev ?? '');
-  int? pickInt(int? next, int? prev) => next ?? prev;
-  double? pickDouble(double? next, double? prev) => next ?? prev;
-
-  return BambuPrintStatus(
-    gcodeState: pickString(incoming.gcodeState, previous.gcodeState),
-    percent: pickInt(incoming.percent, previous.percent),
-    remainingMinutes: pickInt(
-      incoming.remainingMinutes,
-      previous.remainingMinutes,
-    ),
-    gcodeFile: pickString(incoming.gcodeFile, previous.gcodeFile),
-    layer: pickInt(incoming.layer, previous.layer),
-    totalLayers: pickInt(incoming.totalLayers, previous.totalLayers),
-    bedTemp: pickDouble(incoming.bedTemp, previous.bedTemp),
-    bedTarget: pickDouble(incoming.bedTarget, previous.bedTarget),
-    nozzleTemp: pickDouble(incoming.nozzleTemp, previous.nozzleTemp),
-    nozzleTarget: pickDouble(incoming.nozzleTarget, previous.nozzleTarget),
-    chamberTemp: pickDouble(incoming.chamberTemp, previous.chamberTemp),
-    nozzleType: pickString(incoming.nozzleType, previous.nozzleType),
-    nozzleDiameter: pickString(
-      incoming.nozzleDiameter,
-      previous.nozzleDiameter,
-    ),
-    speedLevel: pickInt(incoming.speedLevel, previous.speedLevel),
-    speedMag: pickInt(incoming.speedMag, previous.speedMag),
-    subtaskName: pickString(incoming.subtaskName, previous.subtaskName),
-    taskId: pickString(incoming.taskId, previous.taskId),
-    jobId: pickString(incoming.jobId, previous.jobId),
-    wifiSignal: pickString(incoming.wifiSignal, previous.wifiSignal),
-  );
-}
-
-bool? _parseBoolish(dynamic value) {
-  if (value == null) return null;
-  if (value is bool) return value;
-  if (value is num) return value != 0;
-  if (value is String) {
-    final v = value.trim().toLowerCase();
-    if (v.isEmpty) return null;
-    if (['on', 'true', '1', 'yes', 'enabled'].contains(v)) return true;
-    if (['off', 'false', '0', 'no', 'disabled'].contains(v)) return false;
-  }
-  return null;
-}
-
-Map<String, dynamic> _stringKeyMap(Map map) {
-  final out = <String, dynamic>{};
-  map.forEach((key, value) {
-    if (key is String) {
-      out[key] = value;
-    }
-  });
-  return out;
-}
-
-List<Map<String, dynamic>> _extractLightsReport(Map<String, dynamic> map) {
-  final lightsReport = map['lights_report'];
-  if (lightsReport is List) {
-    return lightsReport.whereType<Map>().map((e) => _stringKeyMap(e)).toList();
-  }
-  return const [];
-}
-
-String? _detectLightNode(Map<String, dynamic> json) {
-  final candidates = <Map<String, dynamic>>[];
-  final system = json['system'];
-  if (system is Map) {
-    candidates.add(_stringKeyMap(system));
-  }
-  final print = json['print'];
-  if (print is Map) {
-    candidates.add(_stringKeyMap(print));
-  }
-  candidates.add(json);
-
-  for (final candidate in candidates) {
-    final lights = _extractLightsReport(candidate);
-    if (lights.isEmpty) continue;
-    for (final entry in lights) {
-      final node = entry['node'];
-      if (node == 'chamber_light') return 'chamber_light';
-    }
-    for (final entry in lights) {
-      final node = entry['node'];
-      if (node == 'work_light') return 'work_light';
-    }
-  }
-  return null;
-}
-
-bool? _extractLightStateForNode(Map<String, dynamic> json, String node) {
-  final candidates = <Map<String, dynamic>>[];
-  final system = json['system'];
-  if (system is Map) {
-    candidates.add(_stringKeyMap(system));
-  }
-  final print = json['print'];
-  if (print is Map) {
-    candidates.add(_stringKeyMap(print));
-  }
-  candidates.add(json);
-
-  for (final candidate in candidates) {
-    final lights = _extractLightsReport(candidate);
-    if (lights.isEmpty) continue;
-    for (final entry in lights) {
-      if (entry['node'] == node) {
-        final mode = entry['mode'];
-        final v = _parseBoolish(mode);
-        if (v != null) return v;
-        if (mode is String && mode.toLowerCase() == 'flashing') return true;
-      }
-    }
-  }
-  return null;
-}
-
-bool? _extractLightFromMap(Map<String, dynamic> map) {
-  const directKeys = [
-    'chamber_light',
-    'chamber_light_state',
-    'chamber_light_on',
-    'light',
-    'light_state',
-    'light_on',
-  ];
-  for (final key in directKeys) {
-    if (map.containsKey(key)) {
-      final v = _parseBoolish(map[key]);
-      if (v != null) return v;
-    }
-  }
-
-  final ledMode = map['led_mode'];
-  if (ledMode != null) {
-    final node = map['led_node'];
-    if (node == null || (node is String && node.contains('chamber'))) {
-      final v = _parseBoolish(ledMode);
-      if (v != null) return v;
-    }
-  }
-
-  final led = map['led'];
-  if (led is Map) {
-    final nested = _extractLightFromMap(_stringKeyMap(led));
-    if (nested != null) return nested;
-  }
-
-  return null;
-}
-
-bool? _extractChamberLightState(Map<String, dynamic> json) {
-  final candidates = <Map<String, dynamic>>[];
-  final system = json['system'];
-  if (system is Map) {
-    candidates.add(_stringKeyMap(system));
-  }
-  final print = json['print'];
-  if (print is Map) {
-    candidates.add(_stringKeyMap(print));
-  }
-  candidates.add(json);
-
-  for (final candidate in candidates) {
-    final v = _extractLightFromMap(candidate);
-    if (v != null) return v;
-  }
-  return null;
 }
 
 class _MetricsPanel extends StatelessWidget {
