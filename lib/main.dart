@@ -6,15 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:boomprint/bambu_lan.dart';
 import 'package:boomprint/bambu_mqtt.dart';
 import 'package:boomprint/feature_flags.dart';
-import 'package:boomprint/connection_preflight.dart';
 import 'package:boomprint/connection_controller.dart';
-import 'package:boomprint/printer_firmware.dart';
 import 'package:boomprint/settings_manager.dart';
 import 'package:boomprint/monitoring_alerts.dart';
 import 'package:boomprint/sensitive_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'settings_page.dart';
+import 'stream_page_widgets.dart';
 import 'mqtt_control_page.dart';
 import 'ftp_browser_page.dart';
 import 'package:media_kit/media_kit.dart';
@@ -1137,7 +1136,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
               Positioned(
                 left: 12,
                 top: 12,
-                child: _PrintOverlayStatus(status: connection.lastPrintStatus),
+                child: PrintOverlayStatus(status: connection.lastPrintStatus),
               ),
             Positioned.fill(
               child: IgnorePointer(
@@ -1368,7 +1367,15 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     final connection = context.watch<ConnectionController>();
     final firmwareBanner = connection.firmwareWarning == null
         ? null
-        : _buildFirmwareWarningBanner(context, connection.firmwareWarning!);
+        : FirmwareWarningBanner(
+            warning: connection.firmwareWarning!,
+            onOpenHelp: () {
+              final links = connection.firmwareWarning!.helpEntry.links;
+              if (links.isNotEmpty) {
+                _openExternalUrl(links.first.url);
+              }
+            },
+          );
     final videoPane = Column(
       children: [
         Expanded(
@@ -1393,7 +1400,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         if (!compactLayout && connection.lastPrintStatus != null)
           Padding(
             padding: const EdgeInsets.all(8),
-            child: _MetricsPanel(ps: connection.lastPrintStatus!),
+            child: MetricsPanel(ps: connection.lastPrintStatus!),
           ),
       ],
     );
@@ -1423,7 +1430,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             if (connection.lastPrintStatus != null)
-                              _MetricsPanel(ps: connection.lastPrintStatus!),
+                              MetricsPanel(ps: connection.lastPrintStatus!),
                             if (connection.lastPrintStatus != null)
                               const SizedBox(height: 12),
                             _buildStreamActions(compactLayout: true),
@@ -1452,58 +1459,6 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildFirmwareWarningBanner(
-    BuildContext context,
-    PrinterFirmwareWarning warning,
-  ) {
-    final helpUrl = warning.helpEntry.links.isNotEmpty
-        ? warning.helpEntry.links.first.url
-        : null;
-    return MaterialBanner(
-      backgroundColor: Theme.of(context).colorScheme.tertiaryContainer,
-      leading: Icon(
-        Icons.warning_amber_rounded,
-        color: Theme.of(context).colorScheme.onTertiaryContainer,
-      ),
-      content: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Firmware may be too old',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              color: Theme.of(context).colorScheme.onTertiaryContainer,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            warning.message,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onTertiaryContainer,
-            ),
-          ),
-          if (warning.firmwareVersion.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              'Detected firmware: ${warning.firmwareVersion}',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onTertiaryContainer,
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ],
-      ),
-      actions: [
-        if (helpUrl != null)
-          TextButton(
-            onPressed: () => _openExternalUrl(helpUrl),
-            child: const Text('Firmware updates'),
-          ),
-      ],
-    );
-  }
-
   Future<void> _openExternalUrl(String url) async {
     final uri = Uri.tryParse(url);
     if (uri == null) {
@@ -1519,74 +1474,10 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     }
   }
 
-  Widget _buildDisconnectedBody() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.videocam_off, size: 64, color: Colors.grey),
-          const SizedBox(height: 16),
-          const Text(
-            'No active stream',
-            style: TextStyle(fontSize: 18, color: Colors.grey),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _openSettings,
-            child: const Text('Configure Stream'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final settings = SettingsManager.settings;
-              final streamUrl = ConnectionPreflight.buildStreamUrl(settings);
-              if (streamUrl.trim().isEmpty) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please configure printer settings first'),
-                    ),
-                  );
-                }
-                return;
-              }
-
-              final summary = await ConnectionPreflight.run(
-                settings: settings,
-                streamUrl: streamUrl,
-              );
-              if (!mounted) return;
-
-              if (summary.hasRequiredFailures) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text(summary.summaryLine)));
-                return;
-              }
-
-              final optionalFailures = summary.optionalFailures.toList();
-              if (optionalFailures.isNotEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Printer stream is reachable. ${optionalFailures.map((r) => r.label).join(', ')} unavailable, but optional.',
-                    ),
-                  ),
-                );
-              }
-
-              _onConnect(streamUrl);
-            },
-            child: const Text('Connect to Printer'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final connection = context.watch<ConnectionController>();
-    final titleSummary = _buildTitleSummary(connection.lastPrintStatus);
+    final titleSummary = buildTitleSummary(connection.lastPrintStatus);
     final compactLandscape = _isMobileLandscape(context);
 
     return FramelessWindowResizeFrame(
@@ -1630,191 +1521,10 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         ),
         body: connection.isStreaming
             ? _buildStreamingBody(context, compactLayout: compactLandscape)
-            : _buildDisconnectedBody(),
-      ),
-    );
-  }
-}
-
-String? _formatNozzleInfo(BambuPrintStatus? ps) {
-  if (ps == null) return null;
-  final type = ps.nozzleType?.trim() ?? '';
-  final diameter = ps.nozzleDiameter?.trim() ?? '';
-  if (type.isEmpty && diameter.isEmpty) return null;
-  if (type.isNotEmpty && diameter.isNotEmpty) return '$type • $diameter';
-  return type.isNotEmpty ? type : diameter;
-}
-
-String? _formatJobIds(BambuPrintStatus? ps) {
-  if (ps == null) return null;
-  final job = ps.jobId?.trim() ?? '';
-  final task = ps.taskId?.trim() ?? '';
-  if (job.isEmpty && task.isEmpty) return null;
-  if (job.isNotEmpty && task.isNotEmpty) {
-    return 'Job ID: $job • Task ID: $task';
-  }
-  return job.isNotEmpty ? 'Job ID: $job' : 'Task ID: $task';
-}
-
-String? _formatPrintFileTitle(BambuPrintStatus? ps) {
-  if (ps == null) return null;
-  final subtask = ps.subtaskName?.trim();
-  if (subtask != null && subtask.isNotEmpty) {
-    return subtask;
-  }
-  final gcodeFile = ps.gcodeFile?.trim();
-  if (gcodeFile == null || gcodeFile.isEmpty) {
-    return null;
-  }
-  return path.basename(gcodeFile);
-}
-
-String? _buildTitleSummary(BambuPrintStatus? ps) {
-  final lines = <String>[];
-  final printFile = _formatPrintFileTitle(ps);
-  if (printFile != null) {
-    lines.add('Print: $printFile');
-  }
-  final nozzleInfo = _formatNozzleInfo(ps);
-  if (nozzleInfo != null) {
-    lines.add('Nozzle: $nozzleInfo');
-  }
-  final ids = _formatJobIds(ps);
-  if (ids != null) {
-    lines.add(ids);
-  }
-  if (lines.isEmpty) return null;
-  return lines.join(' • ');
-}
-
-class _MetricsPanel extends StatelessWidget {
-  final BambuPrintStatus ps;
-  const _MetricsPanel({required this.ps});
-
-  @override
-  Widget build(BuildContext context) {
-    String fmtTemp(double? t) => t == null ? '-' : '${t.toStringAsFixed(0)}°C';
-    String fmtRssi(String? s) => s == null || s.isEmpty ? '-' : s;
-    String fmtLayer(int? l, int? t) =>
-        (l == null && t == null) ? '-' : '${l ?? '?'} / ${t ?? '?'}';
-    String fmtSpeed(int? level, int? mag) {
-      if (level == null && mag == null) return '-';
-      if (level != null && mag != null) return 'L$level ($mag%)';
-      if (level != null) return 'L$level';
-      return '$mag%';
-    }
-
-    final styleValue = Theme.of(context).textTheme.bodySmall;
-
-    Widget item(IconData icon, String value) => Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16),
-        const SizedBox(width: 4),
-        Text(value, style: styleValue),
-      ],
-    );
-
-    final items = <Widget>[
-      if (ps.nozzleTemp != null || ps.nozzleTarget != null)
-        item(
-          Icons.local_fire_department,
-          '${fmtTemp(ps.nozzleTemp)} / ${fmtTemp(ps.nozzleTarget)}',
-        ),
-      if (ps.bedTemp != null || ps.bedTarget != null)
-        item(
-          Icons.grid_on,
-          '${fmtTemp(ps.bedTemp)} / ${fmtTemp(ps.bedTarget)}',
-        ),
-      if (ps.chamberTemp != null)
-        item(Icons.crop_square, fmtTemp(ps.chamberTemp)),
-      if (ps.speedLevel != null || ps.speedMag != null)
-        item(Icons.speed, fmtSpeed(ps.speedLevel, ps.speedMag)),
-      if (ps.wifiSignal != null && ps.wifiSignal!.isNotEmpty)
-        item(Icons.wifi, fmtRssi(ps.wifiSignal)),
-      if (ps.layer != null || ps.totalLayers != null)
-        item(Icons.layers, fmtLayer(ps.layer, ps.totalLayers)),
-      if (ps.percent != null) item(Icons.percent, '${ps.percent}%'),
-      if (ps.remainingMinutes != null)
-        item(Icons.timelapse, '${ps.remainingMinutes}m'),
-    ];
-
-    if (items.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Wrap(spacing: 12, runSpacing: 6, children: items),
-      ),
-    );
-  }
-}
-
-class _MetricItem {
-  final String label;
-  final String value;
-  final bool show;
-  final IconData? icon;
-
-  const _MetricItem(this.label, this.value, {this.show = true, this.icon});
-}
-
-class _PrintOverlayStatus extends StatelessWidget {
-  final BambuPrintStatus? status;
-  const _PrintOverlayStatus({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    if (status == null) {
-      return DecoratedBox(
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.4),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Text(
-            'Waiting for MQTT status…',
-            style: TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-        ),
-      );
-    }
-
-    final parts = <String>[];
-    if (status!.gcodeState.isNotEmpty) {
-      parts.add(status!.gcodeState);
-    }
-    if (status!.percent != null) {
-      parts.add('${status!.percent}%');
-    }
-    if (status!.remainingMinutes != null) {
-      parts.add('${status!.remainingMinutes}m left');
-    }
-    if (status!.layer != null || status!.totalLayers != null) {
-      final layer = status!.layer?.toString() ?? '?';
-      final total = status!.totalLayers?.toString() ?? '?';
-      parts.add('Layer $layer / $total');
-    }
-    if (parts.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.55),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Text(
-          parts.join(' • '),
-          style: Theme.of(
-            context,
-          ).textTheme.labelMedium?.copyWith(color: Colors.white, fontSize: 13),
-        ),
+            : DisconnectedBody(
+                onOpenSettings: _openSettings,
+                onConnect: (url) async => _onConnect(url),
+              ),
       ),
     );
   }
