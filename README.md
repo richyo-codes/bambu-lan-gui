@@ -1,5 +1,10 @@
 # BoomPrint
 
+[![Build Status](https://github.com/richyo-codes/bambu-lan-gui/actions/workflows/flutter-build.yml/badge.svg)](https://github.com/richyo-codes/bambu-lan-gui/actions/workflows/flutter-build.yml)
+[![Latest Release](https://img.shields.io/github/v/release/richyo-codes/bambu-lan-gui?display_name=tag)](https://github.com/richyo-codes/bambu-lan-gui/releases)
+[![License: MIT](https://img.shields.io/github/license/richyo-codes/bambu-lan-gui)](LICENSE)
+[![Platforms](https://img.shields.io/badge/platforms-Android%20%7C%20Linux%20%7C%20Windows-blue)](#platforms)
+
 BoomPrint is a LAN-first desktop and mobile companion for Bambu printers. It focuses on the parts that are useful on the same network:
 
 - Live camera streaming with RTSP/RTSPS URL generation for supported printers
