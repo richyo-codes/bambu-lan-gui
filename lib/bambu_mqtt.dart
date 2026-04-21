@@ -343,16 +343,36 @@ class BambuMqtt {
   /// Attempt to set a predefined speed profile. If a native profile command
   /// is unsupported on the target firmware, fall back to M220 percentage.
   Future<void> setSpeedProfile(BambuSpeedProfile profile) async {
+    final seq = (_seq++).toString();
     final payload = {
       'print': {
-        'sequence_id': (_seq++).toString(),
+        'sequence_id': seq,
         'command': 'print_speed',
         'param': profile.mqttParam,
       },
     };
     try {
+      stderr.writeln(
+        'MQTT speed profile request: profile=${profile.label} '
+        'seq=$seq param=${profile.mqttParam}',
+      );
+      final ackFuture = _waitForAck(sequenceId: seq, command: 'print_speed');
       await publishRequest(payload);
-    } catch (_) {
+      final ack = await ackFuture;
+      stderr.writeln(
+        'MQTT speed profile ACK: envelope=${ack.envelope} seq=${ack.sequenceId} '
+        'result=${ack.payload['result'] ?? ''} '
+        'reason=${ack.payload['reason'] ?? ''} '
+        'error_code=${ack.payload['error_code'] ?? ''}',
+      );
+      if (_ackIndicatesFailure(ack.payload)) {
+        throw StateError(_ackFailureMessage(ack.payload));
+      }
+    } catch (e) {
+      stderr.writeln(
+        'MQTT speed profile fallback: profile=${profile.label} '
+        'reason=$e fallback_percent=${profile.fallbackPercent}',
+      );
       await setSpeedPercent(profile.fallbackPercent);
     }
   }
@@ -473,6 +493,85 @@ class BambuMqtt {
     };
     await publishRequest(payload, qos: MqttQos.atMostOnce);
   }
+
+  Future<_MqttEnvelopeAck> _waitForAck({
+    required String sequenceId,
+    String? command,
+    Duration timeout = const Duration(seconds: 3),
+  }) {
+    return _reports.stream
+        .map((event) => _extractAckEnvelope(event.json))
+        .where((ack) => ack != null)
+        .cast<_MqttEnvelopeAck>()
+        .firstWhere((ack) {
+          if (ack.sequenceId != sequenceId) return false;
+          if (command == null) return true;
+          final ackCommand = ack.payload['command']?.toString();
+          return ackCommand == null || ackCommand == command;
+        })
+        .timeout(timeout);
+  }
+
+  Map<String, dynamic>? _asStringDynamicMap(Object? value) {
+    if (value is! Map) return null;
+    final out = <String, dynamic>{};
+    for (final entry in value.entries) {
+      out[entry.key.toString()] = entry.value;
+    }
+    return out;
+  }
+
+  _MqttEnvelopeAck? _extractAckEnvelope(Map<String, dynamic> json) {
+    for (final envelope in ['print', 'system', 'info', 'pushing']) {
+      final payload = _asStringDynamicMap(json[envelope]);
+      if (payload == null) continue;
+      final seq = payload['sequence_id']?.toString();
+      if (seq != null && seq.isNotEmpty) {
+        return _MqttEnvelopeAck(
+          envelope: envelope,
+          sequenceId: seq,
+          payload: payload,
+        );
+      }
+    }
+    return null;
+  }
+
+  bool _ackIndicatesFailure(Map<String, dynamic> payload) {
+    final result = payload['result']?.toString();
+    final reason = payload['reason']?.toString();
+    final errorCode = payload['error_code']?.toString();
+    final hasErrorCode =
+        errorCode != null && errorCode.isNotEmpty && errorCode.trim() != '0';
+    return _isFailureSignal(result) ||
+        _isFailureSignal(reason) ||
+        hasErrorCode ||
+        (reason?.toLowerCase().contains('verification failed') ?? false);
+  }
+
+  String _ackFailureMessage(Map<String, dynamic> payload) {
+    final reason = payload['reason']?.toString();
+    final result = payload['result']?.toString();
+    final errorCode = payload['error_code']?.toString();
+    if (reason != null && reason.isNotEmpty) return reason;
+    if (result != null && result.isNotEmpty) return result;
+    if (errorCode != null && errorCode.isNotEmpty) {
+      return 'error_code=$errorCode';
+    }
+    return 'command rejected by printer';
+  }
+
+  bool _isFailureSignal(String? value) {
+    if (value == null) return false;
+    final v = value.trim().toLowerCase();
+    if (v.isEmpty) return false;
+    return v == 'fail' ||
+        v == 'failed' ||
+        v == 'error' ||
+        v == 'reject' ||
+        v == 'rejected' ||
+        v == 'failure';
+  }
 }
 
 class BambuCommandEvent {
@@ -485,6 +584,18 @@ class BambuCommandEvent {
     required this.payload,
     required this.qos,
     required this.timestamp,
+  });
+}
+
+class _MqttEnvelopeAck {
+  final String envelope;
+  final String sequenceId;
+  final Map<String, dynamic> payload;
+
+  const _MqttEnvelopeAck({
+    required this.envelope,
+    required this.sequenceId,
+    required this.payload,
   });
 }
 

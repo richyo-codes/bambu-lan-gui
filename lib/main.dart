@@ -1281,12 +1281,14 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
           lightButton,
           const SizedBox(height: 8),
           Align(alignment: Alignment.centerLeft, child: autoLightToggle),
-          const SizedBox(height: 8),
-          _buildSpeedControls(
-            context: context,
-            printStatus: printStatus,
-            compactLayout: compactLayout,
-          ),
+          if (FeatureFlags.speedControlEnabled) ...[
+            const SizedBox(height: 8),
+            _buildSpeedControls(
+              context: context,
+              printStatus: printStatus,
+              compactLayout: compactLayout,
+            ),
+          ],
         ],
       );
     }
@@ -1349,11 +1351,12 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         ),
         lightButton,
         autoLightToggle,
-        _buildSpeedControls(
-          context: context,
-          printStatus: printStatus,
-          compactLayout: compactLayout,
-        ),
+        if (FeatureFlags.speedControlEnabled)
+          _buildSpeedControls(
+            context: context,
+            printStatus: printStatus,
+            compactLayout: compactLayout,
+          ),
       ],
     );
   }

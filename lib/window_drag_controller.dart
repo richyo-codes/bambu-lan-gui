@@ -307,9 +307,7 @@ class WindowChromeHeader extends StatelessWidget
 
   @override
   Size get preferredSize {
-    return Size.fromHeight(
-      kToolbarHeight + (actions.isEmpty ? 0 : actionHeight),
-    );
+    return const Size.fromHeight(kToolbarHeight);
   }
 
   @override
@@ -325,70 +323,52 @@ class WindowChromeHeader extends StatelessWidget
       elevation: theme.appBarTheme.elevation ?? 0,
       child: SafeArea(
         bottom: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              height: kToolbarHeight,
-              child: Row(
-                children: [
-                  if (leading != null) ...[
-                    Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: leading!,
-                    ),
-                  ],
-                  Expanded(
-                    child: WindowDragArea(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              DefaultTextStyle(
-                                style:
-                                    theme.appBarTheme.titleTextStyle ??
-                                    theme.textTheme.titleLarge!.copyWith(
-                                      color: onSurface,
-                                    ),
-                                child: title,
-                              ),
-                              if (subtitle != null)
-                                DefaultTextStyle(
-                                  style:
-                                      theme.appBarTheme.toolbarTextStyle ??
-                                      theme.textTheme.bodySmall!.copyWith(
-                                        color: onSurface,
-                                      ),
-                                  child: subtitle!,
+        child: SizedBox(
+          height: kToolbarHeight,
+          child: Row(
+            children: [
+              if (leading != null) ...[
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: leading!,
+                ),
+              ],
+              Expanded(
+                child: WindowDragArea(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          DefaultTextStyle(
+                            style:
+                                theme.appBarTheme.titleTextStyle ??
+                                theme.textTheme.titleLarge!.copyWith(
+                                  color: onSurface,
                                 ),
-                            ],
+                            child: title,
                           ),
-                        ),
+                          if (subtitle != null)
+                            DefaultTextStyle(
+                              style:
+                                  theme.appBarTheme.toolbarTextStyle ??
+                                  theme.textTheme.bodySmall!.copyWith(
+                                    color: onSurface,
+                                  ),
+                              child: subtitle!,
+                            ),
+                        ],
                       ),
                     ),
                   ),
-                  const WindowControlButtons(),
-                ],
-              ),
-            ),
-            if (actions.isNotEmpty)
-              Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  border: Border(
-                    top: BorderSide(
-                      color: theme.dividerColor.withValues(alpha: 0.35),
-                    ),
-                  ),
                 ),
-                padding: actionPadding,
-                height: actionHeight,
-                child: Align(
-                  alignment: Alignment.centerRight,
+              ),
+              if (actions.isNotEmpty)
+                Padding(
+                  padding: actionPadding,
                   child: Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -396,8 +376,11 @@ class WindowChromeHeader extends StatelessWidget
                     children: actions,
                   ),
                 ),
-              ),
-          ],
+              const SizedBox(width: 8),
+              const WindowControlButtons(),
+              const SizedBox(width: 8),
+            ],
+          ),
         ),
       ),
     );
@@ -432,6 +415,7 @@ class WindowControlButtons extends StatelessWidget {
             );
           },
         ),
+        const SizedBox(width: 2),
         IconButton(
           tooltip: 'Close',
           icon: const Icon(Icons.close),
