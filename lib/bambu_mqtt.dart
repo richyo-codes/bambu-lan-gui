@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 import 'package:boomprint/bambu_lan.dart';
+import 'package:boomprint/printer_firmware.dart';
 
 // ==========
 // MQTT Client
@@ -96,10 +97,12 @@ class BambuMqtt {
           final jsonMap = json.decode(msg) as Map<String, dynamic>;
           final type = _detectType(jsonMap);
           final ps = _extractPrintStatus(jsonMap);
+          final firmwareVersion = extractFirmwareVersion(jsonMap);
           final e = BambuReportEvent(
             topic: evt.topic,
             json: jsonMap,
             type: type,
+            firmwareVersion: firmwareVersion,
             printStatus: ps,
           );
           // Try to learn serial from the first report if not set

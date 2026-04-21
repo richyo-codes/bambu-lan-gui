@@ -1,5 +1,4 @@
-import 'connection_preflight.dart';
-import 'printer_url_formats.dart';
+import 'printer_profile.dart';
 import 'settings_manager.dart';
 
 class PrinterCameraStream {
@@ -15,22 +14,34 @@ class PrinterCameraStream {
 }
 
 List<PrinterCameraStream> buildPrinterCameraStreams(AppSettings settings) {
-  final count = settings.selectedFormat.isBambuFamily
-      ? (settings.cameraStreamCount < settings.selectedFormat.defaultCameraCount
-            ? settings.selectedFormat.defaultCameraCount
-            : settings.cameraStreamCount)
-      : 1;
+  final profile = PrinterProfile.fromLocalPrinterFields(
+    id: 'active',
+    displayName: 'Active printer',
+    printerType: settings.selectedFormat,
+    printerIp: settings.printerIp,
+    serialNumber: settings.serialNumber,
+    accessCode: settings.specialCode,
+    customUrl: settings.customUrl,
+    cameraStreamCount: settings.cameraStreamCount,
+    selectedCameraIndex: settings.selectedCameraIndex,
+    genericRtspUsername: settings.genericRtspUsername,
+    genericRtspPassword: settings.genericRtspPassword,
+    genericRtspPath: settings.genericRtspPath,
+    genericRtspPort: settings.genericRtspPort,
+    genericRtspSecure: settings.genericRtspSecure,
+  );
 
-  return List.generate(count, (i) {
-    final cameraNumber = i + 1;
-    final label = count == 1 ? 'Camera' : 'Camera $cameraNumber';
-    return PrinterCameraStream(
-      index: i,
-      label: label,
-      url: ConnectionPreflight.buildStreamUrl(
-        settings,
-        cameraIndex: cameraNumber,
-      ),
-    );
-  });
+  final cameraUrls = profile.cameraUrls;
+  return cameraUrls
+      .asMap()
+      .entries
+      .map((entry) {
+        final record = entry.value;
+        return PrinterCameraStream(
+          index: entry.key,
+          label: record.label,
+          url: record.url,
+        );
+      })
+      .toList(growable: false);
 }

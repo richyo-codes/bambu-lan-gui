@@ -87,12 +87,14 @@ class BambuReportEvent {
   final String topic;
   final Map<String, dynamic> json;
   final String? type; // high-level message type or state
+  final String? firmwareVersion;
   final BambuPrintStatus?
   printStatus; // parsed metrics if this is a print report
   const BambuReportEvent({
     required this.topic,
     required this.json,
     this.type,
+    this.firmwareVersion,
     this.printStatus,
   });
 }

@@ -8,10 +8,12 @@ import 'package:boomprint/bambu_mqtt.dart';
 import 'package:boomprint/feature_flags.dart';
 import 'package:boomprint/connection_preflight.dart';
 import 'package:boomprint/printer_camera_streams.dart';
+import 'package:boomprint/printer_firmware.dart';
 import 'package:boomprint/settings_manager.dart';
 import 'package:boomprint/printer_stream_manager.dart';
 import 'package:boomprint/monitoring_alerts.dart';
 import 'package:boomprint/sensitive_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'settings_page.dart';
 import 'mqtt_control_page.dart';
 import 'ftp_browser_page.dart';
@@ -226,7 +228,11 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   BambuMqtt? mqttClient;
   String printerStatus = 'Unknown'; // Example field to show printer data
   BambuPrintStatus? _lastPrintStatus; // Detailed metrics for UI
+  String? _firmwareVersion;
+  PrinterFirmwareWarning? _firmwareWarning;
   bool? _chamberLightOn;
+  bool? _pendingChamberLightOn;
+  DateTime? _pendingLightConfirmationUntil;
   bool _autoLightWhilePrinting = false;
   bool _wasPrinting = false;
   bool _mqttConnected = false;
@@ -259,7 +265,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   Timer? _controlsHideTimer;
   Timer? _autoplayKickTimer;
   Timer? _resumeProbeTimer;
+  Timer? _lightConfirmTimer;
   StreamSubscription<BambuReportEvent>? _mqttReportSub;
+  static const Duration _lightConfirmDelay = Duration(seconds: 4);
 
   Future<Directory> _resolveScreenshotDir() async {
     try {
@@ -352,9 +360,23 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     try {
       await client.setChamberLight(on, ledNode: _lightNode);
       if (mounted) {
-        setState(() => _chamberLightOn = on);
+        setState(() {
+          _chamberLightOn = on;
+          _pendingChamberLightOn = on;
+          _pendingLightConfirmationUntil = DateTime.now().add(
+            _lightConfirmDelay,
+          );
+        });
       }
+      _lightConfirmTimer?.cancel();
+      _lightConfirmTimer = Timer(_lightConfirmDelay, () {
+        if (!mounted || _pendingChamberLightOn != on) return;
+        mqttClient?.requestPushAll().catchError((_) {});
+      });
     } catch (e) {
+      _lightConfirmTimer?.cancel();
+      _pendingChamberLightOn = null;
+      _pendingLightConfirmationUntil = null;
       if (showErrors && mounted) {
         ScaffoldMessenger.of(
           context,
@@ -393,6 +415,13 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     if (_chamberLightOn == null) return 'Light Unknown';
     final nodeLabel = _lightNode == 'work_light' ? 'Work' : 'Chamber';
     return _chamberLightOn! ? '$nodeLabel Light On' : '$nodeLabel Light Off';
+  }
+
+  void _clearPendingLightConfirmation() {
+    _lightConfirmTimer?.cancel();
+    _lightConfirmTimer = null;
+    _pendingChamberLightOn = null;
+    _pendingLightConfirmationUntil = null;
   }
 
   @override
@@ -499,6 +528,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     _controlsHideTimer?.cancel();
     _autoplayKickTimer?.cancel();
     _resumeProbeTimer?.cancel();
+    _lightConfirmTimer?.cancel();
     _mqttReportSub?.cancel();
     player.dispose();
     mqttClient?.dispose();
@@ -572,6 +602,8 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       currentStreamUrl = null;
       printerStatus = 'Unknown';
       _lastPrintStatus = null;
+      _firmwareVersion = null;
+      _firmwareWarning = null;
       _chamberLightOn = null;
       _wasPrinting = false;
       _mqttConnected = false;
@@ -706,7 +738,15 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     if (detectedNode != null) {
       _lightNode = detectedNode;
     }
+    if (event.firmwareVersion != null &&
+        event.firmwareVersion!.trim().isNotEmpty) {
+      _firmwareVersion = event.firmwareVersion!.trim();
+    }
+    final firmwareWarning = evaluateFirmwareWarning(_firmwareVersion);
     final lightState = _extractLightStateForNode(event.json, _lightNode);
+    final pendingLight = _pendingChamberLightOn;
+    final confirmUntil = _pendingLightConfirmationUntil;
+    final now = DateTime.now();
     setState(() {
       if (event.printStatus != null) {
         final previous = _lastPrintStatus;
@@ -723,8 +763,21 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         printerStatus = event.type!;
       }
       if (lightState != null) {
-        _chamberLightOn = lightState;
+        final waitingForConfirm =
+            pendingLight != null &&
+            lightState != pendingLight &&
+            confirmUntil != null &&
+            now.isBefore(confirmUntil);
+        if (!waitingForConfirm) {
+          _chamberLightOn = lightState;
+          if (pendingLight != null && lightState == pendingLight) {
+            _clearPendingLightConfirmation();
+          } else if (confirmUntil == null || now.isAfter(confirmUntil)) {
+            _clearPendingLightConfirmation();
+          }
+        }
       }
+      _firmwareWarning = firmwareWarning;
       if (!_mqttConnected) {
         _mqttConnected = true;
       }
@@ -1234,6 +1287,40 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       ),
       label: Text(_lightStatusLabel()),
     );
+    final autoLightToggle = DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest
+            .withOpacity(compactLayout ? 0.35 : 0.22),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: compactLayout ? 10 : 12,
+          vertical: compactLayout ? 4 : 2,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              compactLayout ? 'Auto light' : 'Auto light while printing',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(width: 8),
+            Switch(
+              value: _autoLightWhilePrinting,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: (value) {
+                setState(() => _autoLightWhilePrinting = value);
+                final ps = _lastPrintStatus;
+                if (value && ps != null) {
+                  _handleAutoLight(ps, force: true);
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
     if (compactLayout) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1285,95 +1372,69 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
           const SizedBox(height: 8),
           lightButton,
           const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('Auto light while printing')),
-              Switch(
-                value: _autoLightWhilePrinting,
-                onChanged: (value) {
-                  setState(() => _autoLightWhilePrinting = value);
-                  final ps = _lastPrintStatus;
-                  if (value && ps != null) {
-                    _handleAutoLight(ps, force: true);
-                  }
-                },
-              ),
-            ],
-          ),
+          Align(alignment: Alignment.centerLeft, child: autoLightToggle),
         ],
       );
     }
 
-    return Column(
+    return Wrap(
+      spacing: 10,
+      runSpacing: 8,
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        if (hasMultipleCameras) ...[
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('Camera:'),
-                const SizedBox(width: 12),
-                DropdownButton<int>(
-                  value: _selectedCameraIndex,
-                  items: _cameraStreams
-                      .map(
-                        (stream) => DropdownMenuItem<int>(
-                          value: stream.index,
-                          child: Text(stream.label),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value == null) return;
-                    _switchCamera(value);
-                  },
-                ),
-              ],
+        if (hasMultipleCameras)
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest.withOpacity(0.22),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Camera'),
+                  const SizedBox(width: 8),
+                  DropdownButton<int>(
+                    value: _selectedCameraIndex,
+                    underline: const SizedBox.shrink(),
+                    items: _cameraStreams
+                        .map(
+                          (stream) => DropdownMenuItem<int>(
+                            value: stream.index,
+                            child: Text(stream.label),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      _switchCamera(value);
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 8),
-        ],
-        Wrap(
-          spacing: 12,
-          runSpacing: 8,
-          alignment: WrapAlignment.center,
-          children: [
-            ElevatedButton.icon(
-              onPressed: _stopStream,
-              icon: const Icon(Icons.stop),
-              label: const Text('Disconnect'),
-            ),
-            ElevatedButton.icon(
-              onPressed: _takeScreenshot,
-              icon: const Icon(Icons.camera_alt),
-              label: const Text(''),
-            ),
-            ElevatedButton.icon(
-              onPressed: _openSettings,
-              icon: const Icon(Icons.settings),
-              label: const Text('Settings'),
-            ),
-            lightButton,
-          ],
+        ElevatedButton.icon(
+          onPressed: _stopStream,
+          icon: const Icon(Icons.stop),
+          label: const Text('Disconnect'),
         ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('Auto light while printing'),
-            Switch(
-              value: _autoLightWhilePrinting,
-              onChanged: (value) {
-                setState(() => _autoLightWhilePrinting = value);
-                final ps = _lastPrintStatus;
-                if (value && ps != null) {
-                  _handleAutoLight(ps, force: true);
-                }
-              },
-            ),
-          ],
+        OutlinedButton.icon(
+          onPressed: _takeScreenshot,
+          icon: const Icon(Icons.camera_alt),
+          label: const Text('Screenshot'),
         ),
+        OutlinedButton.icon(
+          onPressed: _openSettings,
+          icon: const Icon(Icons.settings),
+          label: const Text('Settings'),
+        ),
+        lightButton,
+        autoLightToggle,
       ],
     );
   }
@@ -1382,6 +1443,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     BuildContext context, {
     required bool compactLayout,
   }) {
+    final firmwareBanner = _firmwareWarning == null
+        ? null
+        : _buildFirmwareWarningBanner(context, _firmwareWarning!);
     final videoPane = Column(
       children: [
         Expanded(
@@ -1412,33 +1476,41 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     );
 
     if (compactLayout) {
-      return Row(
+      return Column(
         children: [
-          Expanded(child: videoPane),
-          SizedBox(
-            width: 248,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 12, 12),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.surfaceContainerHighest.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (_lastPrintStatus != null)
-                        _MetricsPanel(ps: _lastPrintStatus!),
-                      if (_lastPrintStatus != null) const SizedBox(height: 12),
-                      _buildStreamActions(compactLayout: true),
-                    ],
+          if (firmwareBanner != null) firmwareBanner,
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(child: videoPane),
+                SizedBox(
+                  width: 248,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 8, 12, 12),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (_lastPrintStatus != null)
+                              _MetricsPanel(ps: _lastPrintStatus!),
+                            if (_lastPrintStatus != null)
+                              const SizedBox(height: 12),
+                            _buildStreamActions(compactLayout: true),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
           ),
         ],
@@ -1447,14 +1519,81 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
 
     return Column(
       children: [
+        if (firmwareBanner != null) firmwareBanner,
         Expanded(child: videoPane),
-        const Divider(),
         Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
           child: _buildStreamActions(compactLayout: false),
         ),
       ],
     );
+  }
+
+  Widget _buildFirmwareWarningBanner(
+    BuildContext context,
+    PrinterFirmwareWarning warning,
+  ) {
+    final helpUrl = warning.helpEntry.links.isNotEmpty
+        ? warning.helpEntry.links.first.url
+        : null;
+    return MaterialBanner(
+      backgroundColor: Theme.of(context).colorScheme.tertiaryContainer,
+      leading: Icon(
+        Icons.warning_amber_rounded,
+        color: Theme.of(context).colorScheme.onTertiaryContainer,
+      ),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Firmware may be too old',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).colorScheme.onTertiaryContainer,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            warning.message,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onTertiaryContainer,
+            ),
+          ),
+          if (warning.firmwareVersion.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Detected firmware: ${warning.firmwareVersion}',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onTertiaryContainer,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        if (helpUrl != null)
+          TextButton(
+            onPressed: () => _openExternalUrl(helpUrl),
+            child: const Text('Firmware updates'),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _openExternalUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      return;
+    }
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not open link: $url')));
+    }
   }
 
   Widget _buildDisconnectedBody() {
