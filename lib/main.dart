@@ -232,7 +232,6 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   bool _mqttConnected = false;
   String _lightNode = 'chamber_light';
   bool _mqttControlsEnabled = false;
-  bool _lightControlsEnabled = false;
   bool _hardwareAccelerationEnabled = true;
 
   // Stall detection & reconnect
@@ -454,7 +453,6 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         : nextCameraStreams[nextCameraIndex].url;
     setState(() {
       _mqttControlsEnabled = settings.mqttControlsEnabled;
-      _lightControlsEnabled = settings.lightControlsEnabled;
       _hardwareAccelerationEnabled = nextHw;
       _cameraStreams = nextCameraStreams;
       _selectedCameraIndex = nextCameraIndex;
@@ -1227,6 +1225,15 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
 
   Widget _buildStreamActions({required bool compactLayout}) {
     final hasMultipleCameras = _cameraStreams.length > 1;
+    final lightButton = OutlinedButton.icon(
+      onPressed: (_mqttConnected || _chamberLightOn != null)
+          ? _toggleChamberLight
+          : null,
+      icon: Icon(
+        _chamberLightOn == true ? Icons.lightbulb : Icons.lightbulb_outline,
+      ),
+      label: Text(_lightStatusLabel()),
+    );
     if (compactLayout) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1275,34 +1282,24 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
             icon: const Icon(Icons.settings),
             label: const Text('Settings'),
           ),
-          if (_lightControlsEnabled) ...[
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: _toggleChamberLight,
-              icon: Icon(
-                _chamberLightOn == true
-                    ? Icons.lightbulb
-                    : Icons.lightbulb_outline,
+          const SizedBox(height: 8),
+          lightButton,
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('Auto light while printing')),
+              Switch(
+                value: _autoLightWhilePrinting,
+                onChanged: (value) {
+                  setState(() => _autoLightWhilePrinting = value);
+                  final ps = _lastPrintStatus;
+                  if (value && ps != null) {
+                    _handleAutoLight(ps, force: true);
+                  }
+                },
               ),
-              label: Text(_lightStatusLabel()),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Expanded(child: Text('Auto light while printing')),
-                Switch(
-                  value: _autoLightWhilePrinting,
-                  onChanged: (value) {
-                    setState(() => _autoLightWhilePrinting = value);
-                    final ps = _lastPrintStatus;
-                    if (value && ps != null) {
-                      _handleAutoLight(ps, force: true);
-                    }
-                  },
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ],
       );
     }
@@ -1357,36 +1354,26 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
               icon: const Icon(Icons.settings),
               label: const Text('Settings'),
             ),
-            if (_lightControlsEnabled)
-              OutlinedButton.icon(
-                onPressed: _toggleChamberLight,
-                icon: Icon(
-                  _chamberLightOn == true
-                      ? Icons.lightbulb
-                      : Icons.lightbulb_outline,
-                ),
-                label: Text(_lightStatusLabel()),
-              ),
+            lightButton,
           ],
         ),
         const SizedBox(height: 8),
-        if (_lightControlsEnabled)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('Auto light while printing'),
-              Switch(
-                value: _autoLightWhilePrinting,
-                onChanged: (value) {
-                  setState(() => _autoLightWhilePrinting = value);
-                  final ps = _lastPrintStatus;
-                  if (value && ps != null) {
-                    _handleAutoLight(ps, force: true);
-                  }
-                },
-              ),
-            ],
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text('Auto light while printing'),
+            Switch(
+              value: _autoLightWhilePrinting,
+              onChanged: (value) {
+                setState(() => _autoLightWhilePrinting = value);
+                final ps = _lastPrintStatus;
+                if (value && ps != null) {
+                  _handleAutoLight(ps, force: true);
+                }
+              },
+            ),
+          ],
+        ),
       ],
     );
   }
