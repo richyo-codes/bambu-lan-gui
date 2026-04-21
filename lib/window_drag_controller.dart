@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:boomprint/feature_flags.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -390,32 +391,76 @@ class WindowChromeHeader extends StatelessWidget
 class WindowControlButtons extends StatelessWidget {
   const WindowControlButtons({super.key});
 
+  bool _looksLikeTilingWindowManager() {
+    if (!Platform.isLinux || !FeatureFlags.autoHideMinMaxOnTilingWm) {
+      return false;
+    }
+
+    final env = Platform.environment;
+    final directSignals = [
+      if ((env['SWAYSOCK'] ?? '').isNotEmpty) 'sway',
+      if ((env['I3SOCK'] ?? '').isNotEmpty) 'i3',
+      if ((env['HYPRLAND_INSTANCE_SIGNATURE'] ?? '').isNotEmpty) 'hyprland',
+    ];
+    if (directSignals.isNotEmpty) {
+      return true;
+    }
+
+    final haystack = [
+      env['XDG_CURRENT_DESKTOP'],
+      env['XDG_SESSION_DESKTOP'],
+      env['DESKTOP_SESSION'],
+    ].whereType<String>().join(' ').toLowerCase();
+
+    const tilingMarkers = [
+      'i3',
+      'sway',
+      'hyprland',
+      'bspwm',
+      'qtile',
+      'xmonad',
+      'awesome',
+      'river',
+      'leftwm',
+      'niri',
+      'dwm',
+    ];
+
+    return tilingMarkers.any(haystack.contains);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!WindowDragController.supportsWindowControls ||
         !WindowChromeController.useCustomWindowChrome) {
       return const SizedBox.shrink();
     }
-    WindowDragController.ensureWindowStateInitialized();
+    final showMinMaxButtons =
+        FeatureFlags.minMaxButtonsEnabled && !_looksLikeTilingWindowManager();
+    if (showMinMaxButtons) {
+      WindowDragController.ensureWindowStateInitialized();
+    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          tooltip: 'Minimize',
-          icon: const Icon(Icons.minimize),
-          onPressed: () => WindowDragController.minimize(),
-        ),
-        ValueListenableBuilder<bool>(
-          valueListenable: WindowDragController.isMaximized,
-          builder: (context, isMaximized, _) {
-            return IconButton(
-              tooltip: isMaximized ? 'Restore' : 'Maximize',
-              icon: Icon(isMaximized ? Icons.filter_none : Icons.crop_square),
-              onPressed: () => WindowDragController.toggleMaximize(),
-            );
-          },
-        ),
-        const SizedBox(width: 2),
+        if (showMinMaxButtons) ...[
+          IconButton(
+            tooltip: 'Minimize',
+            icon: const Icon(Icons.minimize),
+            onPressed: () => WindowDragController.minimize(),
+          ),
+          ValueListenableBuilder<bool>(
+            valueListenable: WindowDragController.isMaximized,
+            builder: (context, isMaximized, _) {
+              return IconButton(
+                tooltip: isMaximized ? 'Restore' : 'Maximize',
+                icon: Icon(isMaximized ? Icons.filter_none : Icons.crop_square),
+                onPressed: () => WindowDragController.toggleMaximize(),
+              );
+            },
+          ),
+          const SizedBox(width: 6),
+        ],
         IconButton(
           tooltip: 'Close',
           icon: const Icon(Icons.close),
