@@ -680,6 +680,104 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  List<Widget> _buildHeaderActions(BuildContext context) {
+    final useOverflowMenu =
+        defaultTargetPlatform == TargetPlatform.android ||
+        MediaQuery.of(context).size.width < 900;
+
+    if (useOverflowMenu) {
+      return [
+        PopupMenuButton<String>(
+          tooltip: 'More',
+          icon: const Icon(Icons.more_vert),
+          onSelected: (value) {
+            switch (value) {
+              case 'show_qr':
+                _showSettingsQrCode();
+                break;
+              case 'scan_qr':
+                _scanQrConfig();
+                break;
+              case 'export_json':
+                _exportToJson();
+                break;
+              case 'import_json':
+                _importFromJson();
+                break;
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem<String>(
+              value: 'show_qr',
+              child: Row(
+                children: [
+                  Icon(Icons.qr_code_2, size: 18),
+                  SizedBox(width: 10),
+                  Text('Show QR'),
+                ],
+              ),
+            ),
+            if (_supportsQrScan)
+              const PopupMenuItem<String>(
+                value: 'scan_qr',
+                child: Row(
+                  children: [
+                    Icon(Icons.qr_code_scanner, size: 18),
+                    SizedBox(width: 10),
+                    Text('Scan QR'),
+                  ],
+                ),
+              ),
+            const PopupMenuItem<String>(
+              value: 'export_json',
+              child: Row(
+                children: [
+                  Icon(Icons.file_download, size: 18),
+                  SizedBox(width: 10),
+                  Text('Export JSON'),
+                ],
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'import_json',
+              child: Row(
+                children: [
+                  Icon(Icons.file_open, size: 18),
+                  SizedBox(width: 10),
+                  Text('Import JSON'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ];
+    }
+
+    return [
+      IconButton(
+        tooltip: 'Show settings QR code',
+        icon: const Icon(Icons.qr_code_2),
+        onPressed: _showSettingsQrCode,
+      ),
+      if (_supportsQrScan)
+        IconButton(
+          tooltip: 'Scan printer QR',
+          icon: const Icon(Icons.qr_code_scanner),
+          onPressed: _scanQrConfig,
+        ),
+      IconButton(
+        tooltip: 'Export settings to JSON',
+        icon: const Icon(Icons.file_download),
+        onPressed: _exportToJson,
+      ),
+      IconButton(
+        tooltip: 'Import settings from JSON',
+        icon: const Icon(Icons.file_open),
+        onPressed: _importFromJson,
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     return FramelessWindowResizeFrame(
@@ -692,29 +790,7 @@ class _SettingsPageState extends State<SettingsPage> {
             icon: const Icon(Icons.arrow_back),
             onPressed: () => Navigator.of(context).maybePop(),
           ),
-          actions: [
-            IconButton(
-              tooltip: 'Show settings QR code',
-              icon: const Icon(Icons.qr_code_2),
-              onPressed: _showSettingsQrCode,
-            ),
-            if (_supportsQrScan)
-              IconButton(
-                tooltip: 'Scan printer QR',
-                icon: const Icon(Icons.qr_code_scanner),
-                onPressed: _scanQrConfig,
-              ),
-            IconButton(
-              tooltip: 'Export settings to JSON',
-              icon: const Icon(Icons.file_download),
-              onPressed: _exportToJson,
-            ),
-            IconButton(
-              tooltip: 'Import settings from JSON',
-              icon: const Icon(Icons.file_open),
-              onPressed: _importFromJson,
-            ),
-          ],
+          actions: _buildHeaderActions(context),
         ),
         body: LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
