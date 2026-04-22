@@ -6,7 +6,7 @@ abstract final class FeatureFlags {
 
   static const bool speedControlEnabled = bool.fromEnvironment(
     'BOOMPRINT_ENABLE_SPEED_CONTROL',
-    defaultValue: true,
+    defaultValue: false,
   );
 
   static const bool minMaxButtonsEnabled = bool.fromEnvironment(
