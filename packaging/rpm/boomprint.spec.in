@@ -13,6 +13,7 @@ Requires:       gtk3
 Requires:       mpv-libs
 Requires:       pulseaudio-libs
 Requires:       alsa-lib
+Requires:       libsecret
 Requires:       openssl-libs
 Requires:       libstdc++
 Requires:       zlib

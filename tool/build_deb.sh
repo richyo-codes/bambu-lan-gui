@@ -133,7 +133,7 @@ Priority: optional
 Architecture: $ARCH
 Maintainer: Richard Young <richard@example.com>
 Installed-Size: $INSTALLED_SIZE
-Depends: libgtk-3-0, libmpv2, libpulse0, libasound2 | libasound2t64, libssl3, libstdc++6, zlib1g
+Depends: libgtk-3-0, libmpv2, libpulse0, libasound2 | libasound2t64, libsecret-1-0, libssl3, libstdc++6, zlib1g
 Description: BoomPrint desktop client for Bambu Lab printers
  LAN-only desktop client with MQTT, FTP/FTPS, and stream viewing support.
 EOF
