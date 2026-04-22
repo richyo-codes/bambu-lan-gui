@@ -14,7 +14,6 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'settings_page.dart';
 import 'stream_page_widgets.dart';
-import 'mqtt_control_page.dart';
 import 'ftp_browser_page.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -225,7 +224,6 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   bool _autoLightWhilePrinting = false;
   bool _wasPrinting = false;
   bool _speedCommandBusy = false;
-  bool _mqttControlsEnabled = false;
   bool _hardwareAccelerationEnabled = true;
 
   // Stall detection & reconnect
@@ -250,8 +248,11 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   StreamSubscription<bool>? _playingSub;
   bool _showVideoControls = false;
   bool _isPlaying = false;
+  String? _videoToastMessage;
+  bool _videoToastIsError = false;
   Timer? _controlsHideTimer;
   Timer? _autoplayKickTimer;
+  Timer? _videoToastTimer;
   Timer? _resumeProbeTimer;
   ConnectionController? _listeningController;
   BambuPrintStatus? _lastObservedPrintStatus;
@@ -301,37 +302,16 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         await file.writeAsBytes(screenshotData);
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Screenshot saved to $filePath'),
-              behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.fromLTRB(16, 0, 16, 72),
-              duration: const Duration(seconds: 2),
-            ),
-          );
+          _showVideoToast('Screenshot saved to $filePath', isError: false);
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to capture screenshot'),
-              behavior: SnackBarBehavior.floating,
-              margin: EdgeInsets.fromLTRB(16, 0, 16, 72),
-              duration: Duration(seconds: 2),
-            ),
-          );
+          _showVideoToast('Failed to capture screenshot');
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Screenshot failed: $e'),
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.fromLTRB(16, 0, 16, 72),
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        _showVideoToast('Screenshot failed: $e');
       }
     }
   }
@@ -339,9 +319,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   Future<void> _setChamberLight(bool on, {bool showErrors = true}) async {
     final error = await _connection.setChamberLight(on);
     if (error != null && showErrors && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error)));
+      _showVideoToast(error);
     }
   }
 
@@ -409,9 +387,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     try {
       final error = await _connection.setSpeedProfile(profile);
       if (error != null && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error)));
+        _showVideoToast(error);
       } else {
         _connection.requestPushAll();
       }
@@ -540,7 +516,6 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         ? null
         : connection.cameraStreams[connection.selectedCameraIndex].url;
     setState(() {
-      _mqttControlsEnabled = settings.mqttControlsEnabled;
       _hardwareAccelerationEnabled = nextHw;
     });
 
@@ -572,6 +547,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     _playingSub?.cancel();
     _controlsHideTimer?.cancel();
     _autoplayKickTimer?.cancel();
+    _videoToastTimer?.cancel();
     _resumeProbeTimer?.cancel();
     _listeningController?.removeListener(_handleConnectionStateChanged);
     player.dispose();
@@ -616,9 +592,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       _startStallMonitor();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to start stream: $e')));
+        _showVideoToast('Failed to start stream: $e');
         await connection.stopStreaming();
       }
       return;
@@ -846,9 +820,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         _lastErrorToastAt = now;
         if (mounted) {
           final userMsg = _friendlyError(msg);
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(userMsg)));
+          _showVideoToast(userMsg);
         }
       }
       _attemptReconnect(reason: 'error: $msg');
@@ -871,6 +843,25 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _showVideoControls = false;
+      });
+    });
+  }
+
+  void _showVideoToast(
+    String message, {
+    bool isError = true,
+    Duration duration = const Duration(seconds: 3),
+  }) {
+    if (!mounted) return;
+    _videoToastTimer?.cancel();
+    setState(() {
+      _videoToastMessage = message;
+      _videoToastIsError = isError;
+    });
+    _videoToastTimer = Timer(duration, () {
+      if (!mounted) return;
+      setState(() {
+        _videoToastMessage = null;
       });
     });
   }
@@ -961,9 +952,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     if (_reconnectAttempts >= _maxReconnectAttempts) {
       // Give up for now.
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Stream lost ($reason). Giving up.')),
-        );
+        _showVideoToast('Stream lost ($reason). Giving up.');
       }
       return;
     }
@@ -975,12 +964,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         : (2 << (_reconnectAttempts)).clamp(2, 30);
 
     if (mounted && !immediate) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Reconnecting (attempt $attempt) in ${delaySeconds}s...',
-          ),
-        ),
+      _showVideoToast(
+        'Reconnecting (attempt $attempt) in ${delaySeconds}s...',
+        isError: false,
       );
     }
 
@@ -996,17 +982,13 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         _lastPosition = Duration.zero;
         _lastProgressAt = DateTime.now();
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Reconnected to stream.')),
-          );
+          _showVideoToast('Reconnected to stream.', isError: false);
         }
       } catch (e) {
         _reconnectAttempts++;
         _reconnecting = false;
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Reconnect failed: $e')));
+          _showVideoToast('Reconnect failed: $e');
         }
       }
     });
@@ -1034,9 +1016,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       _startStallMonitor();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Camera switch failed: $e')));
+        _showVideoToast('Camera switch failed: $e');
       }
     }
   }
@@ -1084,9 +1064,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       );
       if (!authenticated) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Settings access was not approved.')),
-          );
+          _showVideoToast('Settings access was not approved.');
         }
         return;
       }
@@ -1138,6 +1116,43 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                 top: 12,
                 child: PrintOverlayStatus(status: connection.lastPrintStatus),
               ),
+            if (_videoToastMessage != null)
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: IgnorePointer(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: (_videoToastIsError
+                                  ? Colors.black.withOpacity(0.78)
+                                  : Colors.blueGrey.withOpacity(0.82)),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _videoToastIsError
+                                ? Colors.redAccent.withOpacity(0.5)
+                                : Colors.white.withOpacity(0.18),
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          child: Text(
+                            _videoToastMessage!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             Positioned.fill(
               child: IgnorePointer(
                 ignoring: !_showVideoControls,
@@ -1183,28 +1198,6 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     final connection = context.watch<ConnectionController>();
     final hasMultipleCameras = connection.cameraStreams.length > 1;
     final printStatus = connection.lastPrintStatus;
-    final mqttButton = OutlinedButton.icon(
-      onPressed: _mqttControlsEnabled
-          ? () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const MqttControlPage()),
-              );
-            }
-          : null,
-      icon: const Icon(Icons.tune),
-      label: const Text('MQTT'),
-    );
-    final ftpButton = OutlinedButton.icon(
-      onPressed: FeatureFlags.ftpBrowserEnabled
-          ? () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const FtpBrowserPage()),
-              );
-            }
-          : null,
-      icon: const Icon(Icons.folder_open),
-      label: const Text('Files'),
-    );
     final lightButton = OutlinedButton.icon(
       onPressed: (connection.mqttConnected || connection.chamberLightOn != null)
           ? _toggleChamberLight
@@ -1215,40 +1208,6 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
             : Icons.lightbulb_outline,
       ),
       label: Text(_lightStatusLabel()),
-    );
-    final autoLightToggle = DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest
-            .withOpacity(compactLayout ? 0.35 : 0.22),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: compactLayout ? 10 : 12,
-          vertical: compactLayout ? 4 : 2,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              compactLayout ? 'Auto light' : 'Auto light while printing',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(width: 8),
-            Switch(
-              value: _autoLightWhilePrinting,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              onChanged: (value) {
-                setState(() => _autoLightWhilePrinting = value);
-                final ps = connection.lastPrintStatus;
-                if (value && ps != null) {
-                  _handleAutoLight(ps, force: true);
-                }
-              },
-            ),
-          ],
-        ),
-      ),
     );
     if (compactLayout) {
       return Column(
@@ -1293,19 +1252,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
             label: const Text('Screenshot'),
           ),
           const SizedBox(height: 8),
-          mqttButton,
-          const SizedBox(height: 8),
-          ftpButton,
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: _openSettings,
-            icon: const Icon(Icons.settings),
-            label: const Text('Settings'),
-          ),
-          const SizedBox(height: 8),
           lightButton,
-          const SizedBox(height: 8),
-          Align(alignment: Alignment.centerLeft, child: autoLightToggle),
           if (FeatureFlags.speedControlEnabled) ...[
             const SizedBox(height: 8),
             _buildSpeedControls(
@@ -1369,15 +1316,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
           icon: const Icon(Icons.camera_alt),
           label: const Text('Screenshot'),
         ),
-        mqttButton,
-        ftpButton,
-        OutlinedButton.icon(
-          onPressed: _openSettings,
-          icon: const Icon(Icons.settings),
-          label: const Text('Settings'),
-        ),
         lightButton,
-        autoLightToggle,
         if (FeatureFlags.speedControlEnabled)
           _buildSpeedControls(
             context: context,
@@ -1496,10 +1435,64 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not open link: $url')));
+      _showVideoToast('Could not open link: $url');
     }
+  }
+
+  List<Widget> _buildHeaderActions(BuildContext context) {
+    void openFiles() {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const FtpBrowserPage()),
+      );
+    }
+
+    const compactHeaderThreshold = 980.0;
+    final width = MediaQuery.of(context).size.width;
+    final useOverflowMenu = width < compactHeaderThreshold;
+
+    if (useOverflowMenu) {
+      return [
+        PopupMenuButton<String>(
+          tooltip: 'More',
+          icon: const Icon(Icons.menu),
+          onSelected: (value) {
+            switch (value) {
+              case 'files':
+                openFiles();
+                break;
+              case 'settings':
+                _openSettings();
+                break;
+            }
+          },
+          itemBuilder: (context) => [
+            if (FeatureFlags.ftpBrowserEnabled)
+              const PopupMenuItem<String>(
+                value: 'files',
+                child: Text('Files'),
+              ),
+            const PopupMenuItem<String>(
+              value: 'settings',
+              child: Text('Settings'),
+            ),
+          ],
+        ),
+      ];
+    }
+
+    return [
+      if (FeatureFlags.ftpBrowserEnabled)
+        IconButton(
+          tooltip: 'Files',
+          icon: const Icon(Icons.folder_open),
+          onPressed: openFiles,
+        ),
+      IconButton(
+        tooltip: 'Settings',
+        icon: const Icon(Icons.settings),
+        onPressed: _openSettings,
+      ),
+    ];
   }
 
   @override
@@ -1520,7 +1513,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                   softWrap: false,
                   overflow: TextOverflow.ellipsis,
                 ),
-          actions: const [],
+          actions: _buildHeaderActions(context),
         ),
         body: connection.isStreaming
             ? _buildStreamingBody(context, compactLayout: compactLandscape)

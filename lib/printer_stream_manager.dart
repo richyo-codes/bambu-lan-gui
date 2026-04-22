@@ -1,13 +1,13 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:boomprint/settings_manager.dart';
 
 class PrinterStreamManager {
   /// Gets printer settings from SharedPreferences
   static Future<PrinterSettings> getPrinterSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    final settings = await SettingsManager.loadSettings();
     return PrinterSettings(
-      printerIp: prefs.getString('rtsp_printerip') ?? '',
-      accessCode: prefs.getString('rtsp_specialcode') ?? '',
-      serialNumber: prefs.getString('rtsp_serial_number') ?? '',
+      printerIp: settings.printerIp,
+      accessCode: settings.specialCode,
+      serialNumber: settings.serialNumber,
     );
   }
 
