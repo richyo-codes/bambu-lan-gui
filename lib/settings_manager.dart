@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'printer_url_formats.dart';
 import 'settings_storage.dart' if (dart.library.io) 'settings_storage_io.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'settings_secure_storage.dart';
 
 class AppSettings {
   String specialCode;
@@ -85,6 +86,26 @@ class AppSettings {
     'linuxUseSystemWindowDecorations': linuxUseSystemWindowDecorations,
   };
 
+  Map<String, dynamic> toPersistentJson() => {
+    'specialCode': '',
+    'printerIp': printerIp,
+    'serialNumber': serialNumber,
+    'selectedFormat': selectedFormat.storageKey,
+    'customUrl': '',
+    'cameraStreamCount': cameraStreamCount,
+    'selectedCameraIndex': selectedCameraIndex,
+    'genericRtspUsername': genericRtspUsername,
+    'genericRtspPassword': '',
+    'genericRtspPath': genericRtspPath,
+    'genericRtspPort': genericRtspPort,
+    'genericRtspSecure': genericRtspSecure,
+    'autoConnect': autoConnect,
+    'mqttControlsEnabled': mqttControlsEnabled,
+    'lightControlsEnabled': lightControlsEnabled,
+    'hardwareAccelerationEnabled': hardwareAccelerationEnabled,
+    'linuxUseSystemWindowDecorations': linuxUseSystemWindowDecorations,
+  };
+
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     return normalizeCameraFields(
       AppSettings(
@@ -149,17 +170,29 @@ class AppSettings {
     );
   }
 
-  Future<void> saveToPrefs() async {
+  Future<void> saveToPrefs({bool scrubSensitiveValues = true}) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('rtsp_specialcode', specialCode);
+    if (scrubSensitiveValues) {
+      await prefs.remove('rtsp_specialcode');
+    } else {
+      await prefs.setString('rtsp_specialcode', specialCode);
+    }
     await prefs.setString('rtsp_printerip', printerIp);
     await prefs.setString('rtsp_serial_number', serialNumber);
     await prefs.setString('rtsp_format', selectedFormat.storageKey);
-    await prefs.setString('rtsp_custom_url', customUrl);
+    if (scrubSensitiveValues) {
+      await prefs.remove('rtsp_custom_url');
+    } else {
+      await prefs.setString('rtsp_custom_url', customUrl);
+    }
     await prefs.setInt('rtsp_camera_stream_count', cameraStreamCount);
     await prefs.setInt('rtsp_selected_camera_index', selectedCameraIndex);
     await prefs.setString('rtsp_generic_username', genericRtspUsername);
-    await prefs.setString('rtsp_generic_password', genericRtspPassword);
+    if (scrubSensitiveValues) {
+      await prefs.remove('rtsp_generic_password');
+    } else {
+      await prefs.setString('rtsp_generic_password', genericRtspPassword);
+    }
     await prefs.setString('rtsp_generic_path', genericRtspPath);
     await prefs.setInt('rtsp_generic_port', genericRtspPort);
     await prefs.setBool('rtsp_generic_secure', genericRtspSecure);
@@ -183,11 +216,16 @@ class SettingsManager {
   static const _jsonFileName = 'boomprint_settings.json';
   static const _legacyJsonFileName = 'rtsp_settings.json';
 
-  static Future<void> _saveToJsonFile(AppSettings settings) async {
+  static Future<void> _saveToJsonFile(
+    AppSettings settings, {
+    bool scrubSensitiveValues = true,
+  }) async {
     try {
       final jsonString = const JsonEncoder.withIndent(
         '  ',
-      ).convert(settings.toJson());
+      ).convert(
+        scrubSensitiveValues ? settings.toPersistentJson() : settings.toJson(),
+      );
       await writeSettingsFile(_jsonFileName, jsonString);
     } catch (_) {
       // Silently ignore file I/O errors to avoid disrupting app flow.
@@ -205,7 +243,7 @@ class SettingsManager {
       final data = jsonDecode(jsonString) as Map<String, dynamic>;
       final settings = AppSettings.fromJson(data);
       // Ensure legacy reads migrate to the new file name.
-      await _saveToJsonFile(settings);
+      await _saveToJsonFile(settings, scrubSensitiveValues: false);
       return settings;
     } catch (_) {
       return null;
@@ -221,6 +259,58 @@ class SettingsManager {
     } catch (_) {
       return null;
     }
+  }
+
+  static Future<AppSettings> _hydrateSensitiveFields(
+    AppSettings base, {
+    SharedPreferences? prefs,
+  }) async {
+    final secure = await SettingsSecureStorage.readSnapshot();
+    final legacyPrefs = prefs ?? await SharedPreferences.getInstance();
+
+    final specialCode = secure.specialCode?.isNotEmpty == true
+        ? secure.specialCode!
+        : base.specialCode.isNotEmpty
+        ? base.specialCode
+        : (legacyPrefs.getString('rtsp_specialcode') ?? '');
+    final genericRtspPassword = secure.genericRtspPassword?.isNotEmpty == true
+        ? secure.genericRtspPassword!
+        : base.genericRtspPassword.isNotEmpty
+        ? base.genericRtspPassword
+        : (legacyPrefs.getString('rtsp_generic_password') ?? '');
+    final customUrl = secure.customUrl?.isNotEmpty == true
+        ? secure.customUrl!
+        : base.customUrl.isNotEmpty
+        ? base.customUrl
+        : (legacyPrefs.getString('rtsp_custom_url') ?? '');
+
+    await SettingsSecureStorage.writeSnapshot(
+      specialCode: specialCode,
+      genericRtspPassword: genericRtspPassword,
+      customUrl: customUrl,
+    );
+
+    return AppSettings.normalizeCameraFields(
+      AppSettings(
+        specialCode: specialCode,
+        printerIp: base.printerIp,
+        serialNumber: base.serialNumber,
+        selectedFormat: base.selectedFormat,
+        customUrl: customUrl,
+        cameraStreamCount: base.cameraStreamCount,
+        selectedCameraIndex: base.selectedCameraIndex,
+        genericRtspUsername: base.genericRtspUsername,
+        genericRtspPassword: genericRtspPassword,
+        genericRtspPath: base.genericRtspPath,
+        genericRtspPort: base.genericRtspPort,
+        genericRtspSecure: base.genericRtspSecure,
+        autoConnect: base.autoConnect,
+        mqttControlsEnabled: base.mqttControlsEnabled,
+        lightControlsEnabled: base.lightControlsEnabled,
+        hardwareAccelerationEnabled: base.hardwareAccelerationEnabled,
+        linuxUseSystemWindowDecorations: base.linuxUseSystemWindowDecorations,
+      ),
+    );
   }
 
   static AppSettings _applyOverrides(
@@ -331,8 +421,9 @@ class SettingsManager {
         ? await _loadFromJsonFilePath(overridePath.trim())
         : await _loadFromJsonFile();
     if (fromFile != null) {
+      final hydrated = await _hydrateSensitiveFields(fromFile);
       _cachedSettings = _applyOverrides(
-        fromFile,
+        hydrated,
         specialCode: overrideSpecialCode,
         printerIp: overridePrinterIp,
         serialNumber: overrideSerialNumber,
@@ -352,14 +443,28 @@ class SettingsManager {
         linuxUseSystemWindowDecorations:
             overrideLinuxUseSystemWindowDecorations,
       );
-      // Keep SharedPreferences in sync
-      await _cachedSettings!.saveToPrefs();
+      final secureWriteSucceeded = await SettingsSecureStorage.writeSnapshot(
+        specialCode: _cachedSettings!.specialCode,
+        genericRtspPassword: _cachedSettings!.genericRtspPassword,
+        customUrl: _cachedSettings!.customUrl,
+      );
+      await _cachedSettings!.saveToPrefs(
+        scrubSensitiveValues: secureWriteSucceeded,
+      );
+      await _saveToJsonFile(
+        _cachedSettings!,
+        scrubSensitiveValues: secureWriteSucceeded,
+      );
       return _cachedSettings!;
     }
 
     final prefs = await SharedPreferences.getInstance();
-    _cachedSettings = _applyOverrides(
+    final hydratedPrefs = await _hydrateSensitiveFields(
       AppSettings.fromPrefs(prefs),
+      prefs: prefs,
+    );
+    _cachedSettings = _applyOverrides(
+      hydratedPrefs,
       specialCode: overrideSpecialCode,
       printerIp: overridePrinterIp,
       serialNumber: overrideSerialNumber,
@@ -385,8 +490,16 @@ class SettingsManager {
 
   static Future<void> saveSettings(AppSettings settings) async {
     _cachedSettings = settings;
-    await settings.saveToPrefs();
-    await _saveToJsonFile(settings);
+    final secureWriteSucceeded = await SettingsSecureStorage.writeSnapshot(
+      specialCode: settings.specialCode,
+      genericRtspPassword: settings.genericRtspPassword,
+      customUrl: settings.customUrl,
+    );
+    await settings.saveToPrefs(scrubSensitiveValues: secureWriteSucceeded);
+    await _saveToJsonFile(
+      settings,
+      scrubSensitiveValues: secureWriteSucceeded,
+    );
   }
 
   static void updateSettings(void Function(AppSettings) updater) {
