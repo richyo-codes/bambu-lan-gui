@@ -14,17 +14,6 @@ String? formatNozzleInfo(BambuPrintStatus? ps) {
   return type.isNotEmpty ? type : diameter;
 }
 
-String? formatJobIds(BambuPrintStatus? ps) {
-  if (ps == null) return null;
-  final job = ps.jobId?.trim() ?? '';
-  final task = ps.taskId?.trim() ?? '';
-  if (job.isEmpty && task.isEmpty) return null;
-  if (job.isNotEmpty && task.isNotEmpty) {
-    return 'Job ID: $job • Task ID: $task';
-  }
-  return job.isNotEmpty ? 'Job ID: $job' : 'Task ID: $task';
-}
-
 String? formatPrintFileTitle(BambuPrintStatus? ps) {
   if (ps == null) return null;
   final subtask = ps.subtaskName?.trim();
@@ -47,10 +36,6 @@ String? buildTitleSummary(BambuPrintStatus? ps) {
   final nozzleInfo = formatNozzleInfo(ps);
   if (nozzleInfo != null) {
     lines.add('Nozzle: $nozzleInfo');
-  }
-  final ids = formatJobIds(ps);
-  if (ids != null) {
-    lines.add(ids);
   }
   if (lines.isEmpty) return null;
   return lines.join(' • ');

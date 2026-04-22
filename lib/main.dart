@@ -1183,6 +1183,28 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     final connection = context.watch<ConnectionController>();
     final hasMultipleCameras = connection.cameraStreams.length > 1;
     final printStatus = connection.lastPrintStatus;
+    final mqttButton = OutlinedButton.icon(
+      onPressed: _mqttControlsEnabled
+          ? () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const MqttControlPage()),
+              );
+            }
+          : null,
+      icon: const Icon(Icons.tune),
+      label: const Text('MQTT'),
+    );
+    final ftpButton = OutlinedButton.icon(
+      onPressed: FeatureFlags.ftpBrowserEnabled
+          ? () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const FtpBrowserPage()),
+              );
+            }
+          : null,
+      icon: const Icon(Icons.folder_open),
+      label: const Text('Files'),
+    );
     final lightButton = OutlinedButton.icon(
       onPressed: (connection.mqttConnected || connection.chamberLightOn != null)
           ? _toggleChamberLight
@@ -1271,6 +1293,10 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
             label: const Text('Screenshot'),
           ),
           const SizedBox(height: 8),
+          mqttButton,
+          const SizedBox(height: 8),
+          ftpButton,
+          const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: _openSettings,
             icon: const Icon(Icons.settings),
@@ -1343,6 +1369,8 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
           icon: const Icon(Icons.camera_alt),
           label: const Text('Screenshot'),
         ),
+        mqttButton,
+        ftpButton,
         OutlinedButton.icon(
           onPressed: _openSettings,
           icon: const Icon(Icons.settings),
@@ -1492,32 +1520,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                   softWrap: false,
                   overflow: TextOverflow.ellipsis,
                 ),
-          actions: [
-            if (_mqttControlsEnabled)
-              IconButton(
-                tooltip: 'MQTT Controls',
-                icon: const Icon(Icons.tune),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const MqttControlPage()),
-                  );
-                },
-              ),
-            if (FeatureFlags.ftpBrowserEnabled)
-              IconButton(
-                tooltip: 'FTP Browser',
-                icon: const Icon(Icons.folder_open),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const FtpBrowserPage()),
-                  );
-                },
-              ),
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: _openSettings,
-            ),
-          ],
+          actions: const [],
         ),
         body: connection.isStreaming
             ? _buildStreamingBody(context, compactLayout: compactLandscape)
