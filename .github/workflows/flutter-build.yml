@@ -450,7 +450,7 @@ jobs:
         run: flutter build linux --release
 
       - name: Build Flatpak bundle
-        run: bash ./tool/build_flatpak_container.sh
+        run: bash ./tool/build_flatpak_container.sh --out-dir "$RUNNER_TEMP/boomprint-flatpak"
 
       - name: Upload Flatpak artifact
         uses: richnetdesign/git-artifact-upload@v2
@@ -459,7 +459,7 @@ jobs:
           version: ${{ env.SEMVER }}
           filename: boomprint-flatpak${{ env.LINUX_GTK_ARTIFACT_SUFFIX }}
           append-max-detail-suffix: true
-          path: build/com.rnd.boomprint.flatpak
+          path: ${{ runner.temp }}/boomprint-flatpak/com.rnd.boomprint.flatpak
           if-no-files-found: error
           retention-days: 7
 

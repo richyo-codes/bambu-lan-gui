@@ -6,7 +6,7 @@ MANIFEST="$ROOT_DIR/flatpak/com.rnd.boomprint.yml"
 APP_ID="com.rnd.boomprint"
 CONTAINER_ROOT="/src"
 CONTAINER_MANIFEST="$CONTAINER_ROOT/flatpak/com.rnd.boomprint.yml"
-DEFAULT_OUT_DIR="$ROOT_DIR/build"
+DEFAULT_OUT_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/boomprint/flatpak"
 TMP_OUT_DIR="/tmp/rnd_bambu_rtsp-flatpak"
 
 usage() {
@@ -14,7 +14,7 @@ usage() {
 Usage: ./tool/build_flatpak_container.sh [--tmp] [--out-dir PATH]
 
   --tmp           Store Flatpak builder artifacts under /tmp.
-  --out-dir PATH  Store Flatpak builder artifacts under PATH.
+  --out-dir PATH   Store Flatpak builder artifacts under PATH.
 EOF
 }
 
