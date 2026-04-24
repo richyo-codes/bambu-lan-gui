@@ -45,6 +45,8 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _hardwareAccelerationEnabled = true;
   bool _linuxUseSystemWindowDecorations = false;
   bool _genericRtspSecure = false;
+  bool _showSpecialCode = false;
+  bool _showGenericRtspPassword = false;
   bool _checkingFirewall = false;
   ConnectionPreflightSummary? _lastConnectionCheck;
   int _selectedCameraIndex = 0;
@@ -503,9 +505,9 @@ class _SettingsPageState extends State<SettingsPage> {
                 backgroundColor: Colors.white,
               ),
               const SizedBox(height: 12),
-              SelectableText(
-                payload,
-                maxLines: 4,
+              Text(
+                'The QR code contains sensitive printer settings.',
+                textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -840,12 +842,33 @@ class _SettingsPageState extends State<SettingsPage> {
                     // Show template variable inputs for Bambu X1C format
                     if (selectedFormat == PrinterUrlType.bambuX1C ||
                         selectedFormat == PrinterUrlType.bambuP1S ||
-                        selectedFormat == PrinterUrlType.bambuX2D) ...[
+                        selectedFormat == PrinterUrlType.bambuX2D ||
+                        selectedFormat == PrinterUrlType.bambuH2C ||
+                        selectedFormat == PrinterUrlType.bambuH2D ||
+                        selectedFormat == PrinterUrlType.bambuH2S) ...[
                       TextFormField(
                         controller: specialCodeController,
-                        decoration: const InputDecoration(
+                        obscureText: !_showSpecialCode,
+                        enableSuggestions: false,
+                        autocorrect: false,
+                        decoration: InputDecoration(
                           labelText: 'Special Code',
                           hintText: 'Enter your printer\'s special code',
+                          suffixIcon: IconButton(
+                            tooltip: _showSpecialCode
+                                ? 'Hide special code'
+                                : 'Show special code',
+                            icon: Icon(
+                              _showSpecialCode
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _showSpecialCode = !_showSpecialCode;
+                              });
+                            },
+                          ),
                         ),
                         validator: (value) {
                           if (value == null || value.isEmpty) {
@@ -892,7 +915,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         controller: cameraStreamCountController,
                         decoration: InputDecoration(
                           labelText: 'Camera Stream Count',
-                          hintText: selectedFormat == PrinterUrlType.bambuX2D
+                          hintText: selectedFormat.isIndexedDualCameraBambu
                               ? '2'
                               : '1',
                         ),
@@ -1009,11 +1032,29 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(height: 10),
                       TextFormField(
                         controller: genericRtspPasswordController,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Password',
                           hintText: 'Optional RTSP password',
+                          suffixIcon: IconButton(
+                            tooltip: _showGenericRtspPassword
+                                ? 'Hide password'
+                                : 'Show password',
+                            icon: Icon(
+                              _showGenericRtspPassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _showGenericRtspPassword =
+                                    !_showGenericRtspPassword;
+                              });
+                            },
+                          ),
                         ),
-                        obscureText: true,
+                        obscureText: !_showGenericRtspPassword,
+                        enableSuggestions: false,
+                        autocorrect: false,
                       ),
                       const SizedBox(height: 10),
                       SwitchListTile(

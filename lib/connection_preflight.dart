@@ -96,6 +96,9 @@ class ConnectionPreflight {
       case PrinterUrlType.bambuX1C:
       case PrinterUrlType.bambuP1S:
       case PrinterUrlType.bambuX2D:
+      case PrinterUrlType.bambuH2C:
+      case PrinterUrlType.bambuH2D:
+      case PrinterUrlType.bambuH2S:
         final cameraNumber = cameraIndex ?? (settings.selectedCameraIndex + 1);
         return 'rtsps://bblp:${settings.specialCode}@${settings.printerIp}:322/streaming/live/$cameraNumber';
     }
@@ -186,6 +189,9 @@ class ConnectionPreflight {
       case PrinterUrlType.bambuX1C:
       case PrinterUrlType.bambuP1S:
       case PrinterUrlType.bambuX2D:
+      case PrinterUrlType.bambuH2C:
+      case PrinterUrlType.bambuH2D:
+      case PrinterUrlType.bambuH2S:
         return true;
       case PrinterUrlType.genericRtsp:
       case PrinterUrlType.custom:
@@ -198,6 +204,9 @@ class ConnectionPreflight {
       case PrinterUrlType.bambuX1C:
       case PrinterUrlType.bambuP1S:
       case PrinterUrlType.bambuX2D:
+      case PrinterUrlType.bambuH2C:
+      case PrinterUrlType.bambuH2D:
+      case PrinterUrlType.bambuH2S:
         return 322;
       case PrinterUrlType.genericRtsp:
         return settings.genericRtspPort;
