@@ -18,9 +18,17 @@ if [[ ! -x "$FLUTTER_BIN" ]]; then
   exit 1
 fi
 
+# "$FLUTTER_BIN" run -d linux -v \
+#   --verbose-system-logs \
+#   --local-engine=host_debug_unopt \
+#   --local-engine-host=host_debug_unopt \
+#   --local-engine-src-path="$LOCAL_ENGINE_SRC" \
+#   "$@"
+
+export MEDIA_KIT_GTK4_DEBUG=1
+
 "$FLUTTER_BIN" run -d linux -v \
-  --verbose-system-logs \
-  --local-engine=host_debug_unopt \
-  --local-engine-host=host_debug_unopt \
+   --local-engine=host_debug_unopt \
+   --local-engine-host=host_debug_unopt \
   --local-engine-src-path="$LOCAL_ENGINE_SRC" \
   "$@"
