@@ -282,11 +282,39 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _takeScreenshot() async {
+  Future<void> _takeScreenshot({bool useJpeg = false}) async {
     try {
-      // Capture screenshot using the screenshot package
-      //final screenshotData = await screenshotController.capture();
-      final screenshotData = await player.screenshot();
+      final format = useJpeg ? 'image/jpeg' : 'image/png';
+      final extension = useJpeg ? 'jpg' : 'png';
+      final state = player.state;
+      debugPrint(
+        '[Screenshot] begin playing=${state.playing} buffering=${state.buffering} '
+        'completed=${state.completed} position=${state.position} duration=${state.duration} '
+        'size=${state.width}x${state.height} playlist=${state.playlist} format=$format',
+      );
+      // Make sure the video path has produced at least one frame before asking
+      // mpv for a screenshot. GTK4 startup is still timing-sensitive here.
+      final gateWatch = Stopwatch()..start();
+      bool firstFrameReady = false;
+      try {
+        await controller.waitUntilFirstFrameRendered.timeout(
+          const Duration(seconds: 5),
+        );
+        firstFrameReady = true;
+      } catch (_) {
+        // Fall through and let the screenshot call report the real failure.
+      }
+      debugPrint(
+        '[Screenshot] firstFrameReady=$firstFrameReady elapsed=${gateWatch.elapsedMilliseconds}ms',
+      );
+
+      final screenshotData = await player.screenshot(
+        format: format,
+        includeLibassSubtitles: false,
+      );
+      debugPrint(
+        '[Screenshot] captureResult=${screenshotData == null ? 'null' : '${screenshotData.length} bytes'}',
+      );
 
       if (screenshotData != null) {
         // Resolve a platform-appropriate, writable directory
@@ -294,7 +322,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         await screenshotDir.create(recursive: true);
 
         final timestamp = DateTime.now().millisecondsSinceEpoch;
-        final filename = 'screenshot_$timestamp.png';
+        final filename = 'screenshot_$timestamp.$extension';
         final filePath = path.join(screenshotDir.path, filename);
 
         // Save the screenshot data
