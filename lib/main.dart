@@ -12,6 +12,7 @@ import 'package:boomprint/monitoring_alerts.dart';
 import 'package:boomprint/sensitive_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/foundation.dart';
 import 'settings_page.dart';
 import 'stream_page_widgets.dart';
 import 'ftp_browser_page.dart';
@@ -37,6 +38,9 @@ void main(List<String> args) async {
     overrideGenericRtspSecure: cli.genericRtspSecure,
   ); // Load and cache settings
   MediaKit.ensureInitialized();
+  // debugPrint(
+  //   'media_kit: libmpv client API version ${MediaKit.libmpvClientApiVersion}',
+  // );
   runApp(const MyApp());
 }
 
@@ -218,13 +222,14 @@ bool isAccelSupported({TargetPlatform? platformOverride}) {
 }
 
 class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
-  late final Player player;
+  late Player player;
   late VideoController controller;
   //final screenshotController = ScreenshotController();
   bool _autoLightWhilePrinting = false;
   bool _wasPrinting = false;
   bool _speedCommandBusy = false;
   bool _hardwareAccelerationEnabled = true;
+  bool _hardwareAccelerationCopyEnabled = true;
 
   // Stall detection & reconnect
   Timer? _stallTimer;
@@ -254,6 +259,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   Timer? _autoplayKickTimer;
   Timer? _videoToastTimer;
   Timer? _resumeProbeTimer;
+  int _streamViewGeneration = 0;
   ConnectionController? _listeningController;
   BambuPrintStatus? _lastObservedPrintStatus;
 
@@ -265,20 +271,22 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         // Use app-specific external storage (no special permissions required)
         final base = await getExternalStorageDirectory();
         final root = base ?? await getApplicationDocumentsDirectory();
-        return Directory(path.join(root.path, 'Pictures', 'BambuScreenshots'));
+        return Directory(
+          path.join(root.path, 'Pictures', 'BoomPrint', 'Screenshots'),
+        );
       }
       if (Platform.isIOS) {
         final base = await getApplicationDocumentsDirectory();
-        return Directory(path.join(base.path, 'BambuScreenshots'));
+        return Directory(path.join(base.path, 'BoomPrint', 'Screenshots'));
       }
       // Desktop/web fallbacks
       final downloads = await getDownloadsDirectory();
       final base = downloads ?? await getApplicationDocumentsDirectory();
-      return Directory(path.join(base.path, 'BambuScreenshots'));
+      return Directory(path.join(base.path, 'BoomPrint', 'Screenshots'));
     } catch (_) {
       // Last-resort: app documents
       final base = await getApplicationDocumentsDirectory();
-      return Directory(path.join(base.path, 'BambuScreenshots'));
+      return Directory(path.join(base.path, 'BoomPrint', 'Screenshots'));
     }
   }
 
@@ -503,48 +511,112 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     _listeningController!.addListener(_handleConnectionStateChanged);
     _rebuildVideoController();
     _setupPlayerListeners();
-    unawaited(_loadUiSettings());
-    unawaited(_attemptAutoConnect());
+    unawaited(_bootstrapStartup());
     unawaited(MonitoringAlerts.requestAndroidNotificationPermission());
+  }
+
+  Future<void> _bootstrapStartup() async {
+    await _loadUiSettings();
+    await _attemptAutoConnect();
   }
 
   void _rebuildVideoController() {
     final enabled = _hardwareAccelerationEnabled && isAccelSupported();
+    final hwdec = enabled
+        ? (_hardwareAccelerationCopyEnabled ? 'auto-copy' : 'auto')
+        : 'no';
+    debugPrint(
+      '[Video] rebuild controller hwAccel=$_hardwareAccelerationEnabled '
+      'copy=$_hardwareAccelerationCopyEnabled supported=${isAccelSupported()} '
+      'enabled=$enabled hwdec=$hwdec',
+    );
     controller = VideoController(
       player,
       configuration: VideoControllerConfiguration(
         enableHardwareAcceleration: enabled,
-        hwdec: enabled ? 'auto' : 'no',
+        hwdec: hwdec,
       ),
     );
+  }
+
+  Future<void> _recreatePlayerAndController({
+    required bool hardwareAccelerationEnabled,
+    required bool hardwareAccelerationCopyEnabled,
+    String? reopenUrl,
+  }) async {
+    final shouldReopen =
+        _connection.isStreaming && reopenUrl != null && reopenUrl.isNotEmpty;
+    final oldPlayer = player;
+    _hardwareAccelerationEnabled = hardwareAccelerationEnabled;
+    _hardwareAccelerationCopyEnabled = hardwareAccelerationCopyEnabled;
+
+    _bufferingSub?.cancel();
+    _bufferPosSub?.cancel();
+    _durationSub?.cancel();
+    _errorSub?.cancel();
+    _playingSub?.cancel();
+
+    try {
+      await oldPlayer.stop();
+    } catch (_) {
+      // Ignore cleanup failures; we are replacing the player instance.
+    }
+    try {
+      await oldPlayer.dispose();
+    } catch (_) {
+      // Ignore cleanup failures; we are replacing the player instance.
+    }
+
+    final config = PlayerConfiguration(logLevel: MPVLogLevel.debug);
+    player = Player(configuration: config);
+    _rebuildVideoController();
+    _setupPlayerListeners();
+    _streamViewGeneration++;
+    if (mounted) {
+      setState(() {});
+    }
+
+    await WidgetsBinding.instance.endOfFrame;
+
+    if (shouldReopen) {
+      try {
+        await _openMediaAndEnsurePlaying(reopenUrl!);
+      } catch (_) {
+        // Keep current UI state; existing errors will surface if needed.
+      }
+    }
   }
 
   Future<void> _loadUiSettings() async {
     final connection = _connection;
     final settings = await SettingsManager.loadSettings();
     final prevHw = _hardwareAccelerationEnabled;
+    final prevCopy = _hardwareAccelerationCopyEnabled;
     final nextHw = settings.hardwareAccelerationEnabled;
+    final nextCopy = settings.hardwareAccelerationCopyEnabled;
+    debugPrint(
+      '[Settings] reload hardwareAccelerationEnabled prev=$prevHw next=$nextHw '
+      'copy prev=$prevCopy next=$nextCopy '
+      'streaming=${connection.isStreaming} currentStream=${connection.currentStreamUrl}',
+    );
     await connection.refreshCameraStreamsFromSettings();
     await WindowChromeController.setLinuxSystemDecorations(
       settings.linuxUseSystemWindowDecorations,
     );
     if (!mounted) return;
-    if (prevHw != nextHw) {
-      _hardwareAccelerationEnabled = nextHw;
-      _rebuildVideoController();
-      if (connection.isStreaming && connection.currentStreamUrl != null) {
-        try {
-          await _openMediaAndEnsurePlaying(connection.currentStreamUrl!);
-        } catch (_) {
-          // Keep current stream state; existing error handling will surface issues.
-        }
-      }
+    if (prevHw != nextHw || prevCopy != nextCopy) {
+      await _recreatePlayerAndController(
+        hardwareAccelerationEnabled: nextHw,
+        hardwareAccelerationCopyEnabled: nextCopy,
+        reopenUrl: connection.currentStreamUrl,
+      );
     }
     final nextCameraUrl = connection.cameraStreams.isEmpty
         ? null
         : connection.cameraStreams[connection.selectedCameraIndex].url;
     setState(() {
       _hardwareAccelerationEnabled = nextHw;
+      _hardwareAccelerationCopyEnabled = nextCopy;
     });
 
     if (connection.isStreaming &&
@@ -1023,9 +1095,14 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Future<void> _openMediaAndEnsurePlaying(String url) async {
-    await player.open(Media(url), play: true);
-    await player.play();
+    await player.open(Media(url), play: false);
     _startAutoplayKick(url);
+    await WidgetsBinding.instance.endOfFrame;
+    try {
+      await player.play();
+    } catch (e) {
+      debugPrint('[Video] initial play failed, relying on autoplay kick: $e');
+    }
   }
 
   Future<void> _switchCamera(int cameraIndex) async {
@@ -1077,9 +1154,10 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         return;
       }
 
-      // GTK4 can transiently report paused right after output rebind.
-      // Keep nudging play during startup until frames advance.
-      if (!state.playing && !state.buffering) {
+      // GTK4 startup can leave the player reporting paused or buffering
+      // before the first frame advances. Keep nudging play during the short
+      // startup window until playback is actually moving.
+      if (!state.playing || state.position == Duration.zero) {
         await player.play();
       }
     });
@@ -1156,8 +1234,8 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: (_videoToastIsError
-                                  ? Colors.black.withOpacity(0.78)
-                                  : Colors.blueGrey.withOpacity(0.82)),
+                              ? Colors.black.withOpacity(0.78)
+                              : Colors.blueGrey.withOpacity(0.82)),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: _videoToastIsError
@@ -1469,9 +1547,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
 
   List<Widget> _buildHeaderActions(BuildContext context) {
     void openFiles() {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const FtpBrowserPage()),
-      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const FtpBrowserPage()));
     }
 
     const compactHeaderThreshold = 980.0;
@@ -1495,10 +1573,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
           },
           itemBuilder: (context) => [
             if (FeatureFlags.ftpBrowserEnabled)
-              const PopupMenuItem<String>(
-                value: 'files',
-                child: Text('Files'),
-              ),
+              const PopupMenuItem<String>(value: 'files', child: Text('Files')),
             const PopupMenuItem<String>(
               value: 'settings',
               child: Text('Settings'),
@@ -1530,25 +1605,28 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     final compactLandscape = _isMobileLandscape(context);
 
     return FramelessWindowResizeFrame(
-      child: Scaffold(
-        appBar: WindowChromeHeader(
-          title: const Text(AppStrings.appDisplayName),
-          subtitle: titleSummary == null
-              ? null
-              : Text(
-                  titleSummary,
-                  maxLines: 1,
-                  softWrap: false,
-                  overflow: TextOverflow.ellipsis,
+      child: KeyedSubtree(
+        key: ValueKey(_streamViewGeneration),
+        child: Scaffold(
+          appBar: WindowChromeHeader(
+            title: const Text(AppStrings.appDisplayName),
+            subtitle: titleSummary == null
+                ? null
+                : Text(
+                    titleSummary,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+            actions: _buildHeaderActions(context),
+          ),
+          body: connection.isStreaming
+              ? _buildStreamingBody(context, compactLayout: compactLandscape)
+              : DisconnectedBody(
+                  onOpenSettings: _openSettings,
+                  onConnect: (url) async => _onConnect(url),
                 ),
-          actions: _buildHeaderActions(context),
         ),
-        body: connection.isStreaming
-            ? _buildStreamingBody(context, compactLayout: compactLandscape)
-            : DisconnectedBody(
-                onOpenSettings: _openSettings,
-                onConnect: (url) async => _onConnect(url),
-              ),
       ),
     );
   }
