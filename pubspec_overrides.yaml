@@ -51,3 +51,8 @@ dependency_overrides:
     git:
       url: https://github.com/richnetdesign/dartFTP/
       ref: ftp-backend-curl
+  url_launcher_linux:
+    git:
+      url: https://github.com/richyo-codes/packages
+      path: packages/url_launcher/url_launcher_linux
+      ref: feat-add-gtk4-support-url-launcher-v2
