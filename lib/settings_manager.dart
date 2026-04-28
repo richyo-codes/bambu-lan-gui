@@ -22,6 +22,7 @@ class AppSettings {
   bool mqttControlsEnabled;
   bool lightControlsEnabled;
   bool hardwareAccelerationEnabled;
+  bool hardwareAccelerationCopyEnabled;
   bool linuxUseSystemWindowDecorations;
 
   AppSettings({
@@ -41,6 +42,7 @@ class AppSettings {
     this.mqttControlsEnabled = false,
     this.lightControlsEnabled = false,
     this.hardwareAccelerationEnabled = true,
+    this.hardwareAccelerationCopyEnabled = true,
     this.linuxUseSystemWindowDecorations = false,
   });
 
@@ -83,6 +85,7 @@ class AppSettings {
     'mqttControlsEnabled': mqttControlsEnabled,
     'lightControlsEnabled': lightControlsEnabled,
     'hardwareAccelerationEnabled': hardwareAccelerationEnabled,
+    'hardwareAccelerationCopyEnabled': hardwareAccelerationCopyEnabled,
     'linuxUseSystemWindowDecorations': linuxUseSystemWindowDecorations,
   };
 
@@ -103,6 +106,7 @@ class AppSettings {
     'mqttControlsEnabled': mqttControlsEnabled,
     'lightControlsEnabled': lightControlsEnabled,
     'hardwareAccelerationEnabled': hardwareAccelerationEnabled,
+    'hardwareAccelerationCopyEnabled': hardwareAccelerationCopyEnabled,
     'linuxUseSystemWindowDecorations': linuxUseSystemWindowDecorations,
   };
 
@@ -134,6 +138,8 @@ class AppSettings {
         lightControlsEnabled: (json['lightControlsEnabled'] ?? false) as bool,
         hardwareAccelerationEnabled:
             (json['hardwareAccelerationEnabled'] ?? true) as bool,
+        hardwareAccelerationCopyEnabled:
+            (json['hardwareAccelerationCopyEnabled'] ?? true) as bool,
         linuxUseSystemWindowDecorations:
             (json['linuxUseSystemWindowDecorations'] ?? false) as bool,
       ),
@@ -164,6 +170,8 @@ class AppSettings {
             prefs.getBool('rtsp_light_controls_enabled') ?? false,
         hardwareAccelerationEnabled:
             prefs.getBool('rtsp_hardware_acceleration_enabled') ?? true,
+        hardwareAccelerationCopyEnabled:
+            prefs.getBool('rtsp_hardware_acceleration_copy_enabled') ?? true,
         linuxUseSystemWindowDecorations:
             prefs.getBool('rtsp_linux_use_system_window_decorations') ?? false,
       ),
@@ -204,6 +212,10 @@ class AppSettings {
       hardwareAccelerationEnabled,
     );
     await prefs.setBool(
+      'rtsp_hardware_acceleration_copy_enabled',
+      hardwareAccelerationCopyEnabled,
+    );
+    await prefs.setBool(
       'rtsp_linux_use_system_window_decorations',
       linuxUseSystemWindowDecorations,
     );
@@ -221,9 +233,7 @@ class SettingsManager {
     bool scrubSensitiveValues = true,
   }) async {
     try {
-      final jsonString = const JsonEncoder.withIndent(
-        '  ',
-      ).convert(
+      final jsonString = const JsonEncoder.withIndent('  ').convert(
         scrubSensitiveValues ? settings.toPersistentJson() : settings.toJson(),
       );
       await writeSettingsFile(_jsonFileName, jsonString);
@@ -308,6 +318,7 @@ class SettingsManager {
         mqttControlsEnabled: base.mqttControlsEnabled,
         lightControlsEnabled: base.lightControlsEnabled,
         hardwareAccelerationEnabled: base.hardwareAccelerationEnabled,
+        hardwareAccelerationCopyEnabled: base.hardwareAccelerationCopyEnabled,
         linuxUseSystemWindowDecorations: base.linuxUseSystemWindowDecorations,
       ),
     );
@@ -331,6 +342,7 @@ class SettingsManager {
     bool? mqttControlsEnabled,
     bool? lightControlsEnabled,
     bool? hardwareAccelerationEnabled,
+    bool? hardwareAccelerationCopyEnabled,
     bool? linuxUseSystemWindowDecorations,
   }) {
     final next = AppSettings(
@@ -363,6 +375,9 @@ class SettingsManager {
       lightControlsEnabled: lightControlsEnabled ?? base.lightControlsEnabled,
       hardwareAccelerationEnabled:
           hardwareAccelerationEnabled ?? base.hardwareAccelerationEnabled,
+      hardwareAccelerationCopyEnabled:
+          hardwareAccelerationCopyEnabled ??
+          base.hardwareAccelerationCopyEnabled,
       linuxUseSystemWindowDecorations:
           linuxUseSystemWindowDecorations ??
           base.linuxUseSystemWindowDecorations,
@@ -387,6 +402,7 @@ class SettingsManager {
           mqttControlsEnabled: next.mqttControlsEnabled,
           lightControlsEnabled: next.lightControlsEnabled,
           hardwareAccelerationEnabled: next.hardwareAccelerationEnabled,
+          hardwareAccelerationCopyEnabled: next.hardwareAccelerationCopyEnabled,
           linuxUseSystemWindowDecorations: next.linuxUseSystemWindowDecorations,
         ),
       );
@@ -412,6 +428,7 @@ class SettingsManager {
     bool? overrideMqttControlsEnabled,
     bool? overrideLightControlsEnabled,
     bool? overrideHardwareAccelerationEnabled,
+    bool? overrideHardwareAccelerationCopyEnabled,
     bool? overrideLinuxUseSystemWindowDecorations,
   }) async {
     if (_cachedSettings != null) return _cachedSettings!;
@@ -440,6 +457,8 @@ class SettingsManager {
         mqttControlsEnabled: overrideMqttControlsEnabled,
         lightControlsEnabled: overrideLightControlsEnabled,
         hardwareAccelerationEnabled: overrideHardwareAccelerationEnabled,
+        hardwareAccelerationCopyEnabled:
+            overrideHardwareAccelerationCopyEnabled,
         linuxUseSystemWindowDecorations:
             overrideLinuxUseSystemWindowDecorations,
       );
@@ -481,6 +500,7 @@ class SettingsManager {
       mqttControlsEnabled: overrideMqttControlsEnabled,
       lightControlsEnabled: overrideLightControlsEnabled,
       hardwareAccelerationEnabled: overrideHardwareAccelerationEnabled,
+      hardwareAccelerationCopyEnabled: overrideHardwareAccelerationCopyEnabled,
       linuxUseSystemWindowDecorations: overrideLinuxUseSystemWindowDecorations,
     );
     return _cachedSettings!;
@@ -496,10 +516,7 @@ class SettingsManager {
       customUrl: settings.customUrl,
     );
     await settings.saveToPrefs(scrubSensitiveValues: secureWriteSucceeded);
-    await _saveToJsonFile(
-      settings,
-      scrubSensitiveValues: secureWriteSucceeded,
-    );
+    await _saveToJsonFile(settings, scrubSensitiveValues: secureWriteSucceeded);
   }
 
   static void updateSettings(void Function(AppSettings) updater) {
