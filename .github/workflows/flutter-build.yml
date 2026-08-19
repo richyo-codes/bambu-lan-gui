@@ -665,6 +665,15 @@ jobs:
           lfs: true
           fetch-depth: 0
 
+      - name: Enable Git long paths
+        shell: pwsh
+        run: |
+          git config --global core.longpaths true
+          $longPaths = git config --global --get core.longpaths
+          if ($longPaths -ne "true") {
+            throw "Git long-path support was not enabled."
+          }
+
       - name: Ensure Git LFS assets
         shell: pwsh
         run: |
