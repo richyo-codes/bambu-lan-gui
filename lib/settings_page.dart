@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:boomprint/app_strings.dart';
+import 'package:boomprint/connection_diagnostics.dart';
 import 'package:boomprint/connection_preflight.dart';
 import 'package:boomprint/printer_url_formats.dart';
 import 'package:boomprint/sensitive_auth.dart';
@@ -26,6 +27,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   final _formKey = GlobalKey<FormState>();
+  final ScrollController _scrollController = ScrollController();
   final TextEditingController specialCodeController = TextEditingController();
   final TextEditingController printerIpController = TextEditingController();
   final TextEditingController serialNumberController =
@@ -50,7 +52,9 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _showSpecialCode = false;
   bool _showGenericRtspPassword = false;
   bool _checkingFirewall = false;
+  bool _runningDiagnostics = false;
   ConnectionPreflightSummary? _lastConnectionCheck;
+  ConnectionDiagnosticsReport? _lastDiagnostics;
   int _selectedCameraIndex = 0;
   AppSettings? _savedSettingsSnapshot;
 
@@ -73,6 +77,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     specialCodeController.dispose();
     printerIpController.dispose();
     serialNumberController.dispose();
@@ -240,7 +245,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final parsed = int.tryParse(cameraStreamCountController.text.trim());
     final fallback = selectedFormat.defaultCameraCount;
     final count = parsed ?? fallback;
-    return count < 1 ? 1 : count;
+    return count.clamp(1, selectedFormat.maxCameraCount).toInt();
   }
 
   int _resolveSelectedCameraIndex() {
@@ -358,7 +363,7 @@ class _SettingsPageState extends State<SettingsPage> {
         return;
       }
       if (!mounted) return;
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
         withData: true, // ensure bytes are available on all platforms
@@ -733,6 +738,212 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  Widget _buildDiagnosticsCard(ConnectionDiagnosticsReport report) {
+    Widget buildDesktopSession() {
+      final session = report.desktopSession;
+      return Card(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.computer),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Desktop Session',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      session.displayLabel,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    if (session.details.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      SelectableText(
+                        session.details,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    Widget buildGraphics() {
+      final graphics = report.graphics;
+      final color = graphics.softwareForced
+          ? Colors.orange
+          : graphics.hardwareAccelerationAvailable
+          ? Colors.green
+          : Colors.red;
+      final icon = graphics.softwareForced
+          ? Icons.do_not_disturb_alt
+          : graphics.hardwareAccelerationAvailable
+          ? Icons.memory
+          : Icons.warning_amber;
+
+      return Card(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Graphics / GPU',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      graphics.availabilityLabel,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    if (graphics.details.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      SelectableText(
+                        graphics.details,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    Widget buildEndpoint(EndpointDiagnostic endpoint) {
+      final tls = endpoint.tls;
+      final cert = tls?.certificate;
+      final tlsIcon = tls == null
+          ? Icons.no_encryption
+          : tls.trusted
+          ? Icons.verified_user
+          : Icons.gpp_maybe;
+      final tlsColor = tls == null
+          ? Colors.grey
+          : tls.trusted
+          ? Colors.green
+          : Colors.orange;
+
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildConnectionStatusIcon(endpoint.tcp.status),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '${endpoint.label} • ${endpoint.host}:${endpoint.port}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 34, top: 4),
+              child: Text(endpoint.tcp.message),
+            ),
+            if (tls != null) ...[
+              Padding(
+                padding: const EdgeInsets.only(left: 34, top: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(tlsIcon, size: 18, color: tlsColor),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(tls.message)),
+                  ],
+                ),
+              ),
+              if (cert != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 34, top: 6),
+                  child: SelectableText(
+                    [
+                      'Subject: ${cert.subject}',
+                      'Issuer: ${cert.issuer}',
+                      'Valid: ${cert.startValidity.toLocal()} - ${cert.endValidity.toLocal()}',
+                      'SHA-1: ${cert.sha1Fingerprint}',
+                    ].join('\n'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    final certCount = report.endpoints.where((e) => e.hasCertificate).length;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            buildDesktopSession(),
+            const SizedBox(height: 12),
+            buildGraphics(),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.travel_explore),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Connection Diagnostics',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => _exportDiagnosticsZip(report),
+                  icon: const Icon(Icons.file_download, size: 18),
+                  label: const Text('Export ZIP'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              certCount == 0
+                  ? 'No certificates were captured. Non-secure RTSP has no certificate to pin.'
+                  : 'Captured $certCount certificate${certCount == 1 ? '' : 's'} for pinning analysis. Export includes PEM files and per-endpoint JSON.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              'Stream URL: ${report.streamUrl}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            for (final endpoint in report.endpoints) buildEndpoint(endpoint),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<bool> _runConnectionPreflight() async {
     if (!_formKey.currentState!.validate()) {
       return false;
@@ -782,6 +993,73 @@ class _SettingsPageState extends State<SettingsPage> {
           _checkingFirewall = false;
         });
       }
+    }
+  }
+
+  Future<void> _runConnectionDiagnostics() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    final settings = _currentSettings();
+    final generatedUrl = _generateUrl();
+
+    setState(() {
+      _runningDiagnostics = true;
+    });
+
+    try {
+      final report = await ConnectionDiagnostics.run(
+        settings: settings,
+        streamUrl: generatedUrl,
+      );
+      if (!mounted) return;
+      setState(() {
+        _lastDiagnostics = report;
+      });
+      final certCount = report.endpoints.where((e) => e.hasCertificate).length;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            certCount == 0
+                ? 'Diagnostics complete. No TLS certificates captured.'
+                : 'Diagnostics complete. Captured $certCount certificate${certCount == 1 ? '' : 's'}.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Diagnostics failed: $e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _runningDiagnostics = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _exportDiagnosticsZip(ConnectionDiagnosticsReport report) async {
+    try {
+      final bytes = Uint8List.fromList(report.toZipBytes(includePem: true));
+      final savedPath = await FileSaver.instance.saveFile(
+        name: 'boomprint_connection_diagnostics',
+        fileExtension: 'zip',
+        bytes: bytes,
+        mimeType: MimeType.zip,
+      );
+      if (!mounted) return;
+      final text = savedPath.toString().trim().isEmpty
+          ? 'Diagnostics exported to ZIP.'
+          : 'Diagnostics exported to: $savedPath';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Diagnostics export failed: $e')));
     }
   }
 
@@ -912,442 +1190,499 @@ class _SettingsPageState extends State<SettingsPage> {
             actions: _buildHeaderActions(context),
           ),
           body: LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'URL Format:',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      DropdownButton<PrinterUrlType>(
-                        value: selectedFormat,
-                        isExpanded: true,
-                        items: PrinterUrlType.values
-                            .map(
-                              (t) => DropdownMenuItem<PrinterUrlType>(
-                                value: t,
-                                child: Text(t.displayName),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (PrinterUrlType? newValue) {
-                          setState(() {
-                            selectedFormat = newValue!;
-                            final defaultCount =
-                                selectedFormat.defaultCameraCount;
-                            if (selectedFormat.isBambuFamily &&
-                                _resolveCameraStreamCount() < defaultCount) {
-                              cameraStreamCountController.text = defaultCount
-                                  .toString();
-                              _selectedCameraIndex = 0;
-                            }
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Show template variable inputs for Bambu X1C format
-                      if (selectedFormat == PrinterUrlType.bambuX1C ||
-                          selectedFormat == PrinterUrlType.bambuP1S ||
-                          selectedFormat == PrinterUrlType.bambuX2D ||
-                          selectedFormat == PrinterUrlType.bambuH2C ||
-                          selectedFormat == PrinterUrlType.bambuH2D ||
-                          selectedFormat == PrinterUrlType.bambuH2S) ...[
-                        TextFormField(
-                          controller: specialCodeController,
-                          obscureText: !_showSpecialCode,
-                          enableSuggestions: false,
-                          autocorrect: false,
-                          decoration: InputDecoration(
-                            labelText: 'Special Code',
-                            hintText: 'Enter your printer\'s special code',
-                            suffixIcon: IconButton(
-                              tooltip: _showSpecialCode
-                                  ? 'Hide special code'
-                                  : 'Show special code',
-                              icon: Icon(
-                                _showSpecialCode
-                                    ? Icons.visibility_off
-                                    : Icons.visibility,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _showSpecialCode = !_showSpecialCode;
-                                });
-                              },
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter the special code';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: printerIpController,
-                          decoration: const InputDecoration(
-                            labelText: 'Printer IP Address',
-                            hintText: 'e.g., 192.168.1.100',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter the printer IP address';
-                            }
-                            // Basic IP validation
-                            final ipRegExp = RegExp(r'^(\d{1,3}\.){3}\d{1,3}$');
-                            if (!ipRegExp.hasMatch(value)) {
-                              return 'Please enter a valid IP address';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: serialNumberController,
-                          decoration: const InputDecoration(
-                            labelText: 'Serial Number',
-                            hintText: 'Enter your printer\'s serial number',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter the serial number';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: cameraStreamCountController,
-                          decoration: InputDecoration(
-                            labelText: 'Camera Stream Count',
-                            hintText: selectedFormat.isIndexedDualCameraBambu
-                                ? '2'
-                                : '1',
-                          ),
-                          keyboardType: TextInputType.number,
-                          validator: (value) {
-                            final count = int.tryParse((value ?? '').trim());
-                            if (count == null || count < 1) {
-                              return 'Please enter a valid camera count';
-                            }
-                            return null;
-                          },
-                          onChanged: (_) {
-                            final count = _resolveCameraStreamCount();
-                            if (_selectedCameraIndex >= count) {
-                              setState(() {
-                                _selectedCameraIndex = count - 1;
-                              });
-                            }
-                          },
-                        ),
-                        if (_resolveCameraStreamCount() > 1) ...[
-                          const SizedBox(height: 10),
-                          DropdownButtonFormField<int>(
-                            value: _resolveSelectedCameraIndex(),
-                            decoration: const InputDecoration(
-                              labelText: 'Default Camera',
-                            ),
-                            items: List.generate(
-                              _resolveCameraStreamCount(),
-                              (i) => DropdownMenuItem<int>(
-                                value: i,
-                                child: Text('Camera ${i + 1}'),
-                              ),
-                            ),
-                            onChanged: (value) {
-                              if (value == null) return;
-                              setState(() => _selectedCameraIndex = value);
-                            },
-                          ),
-                        ],
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Generated URL will be:',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          _generateUrl(),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        if (_lastConnectionCheck != null) ...[
-                          const SizedBox(height: 16),
-                          _buildConnectionCheckCard(_lastConnectionCheck!),
-                        ],
-                      ],
-
-                      if (selectedFormat == PrinterUrlType.genericRtsp) ...[
-                        TextFormField(
-                          controller: printerIpController,
-                          decoration: const InputDecoration(
-                            labelText: 'RTSP Host / IP Address',
-                            hintText: 'e.g., 192.168.1.100',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Please enter the RTSP host or IP address';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: genericRtspPortController,
-                          decoration: const InputDecoration(
-                            labelText: 'RTSP Port',
-                            hintText: '554',
-                          ),
-                          keyboardType: TextInputType.number,
-                          validator: (value) {
-                            final port = int.tryParse((value ?? '').trim());
-                            if (port == null || port < 1 || port > 65535) {
-                              return 'Please enter a valid port';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: genericRtspPathController,
-                          decoration: const InputDecoration(
-                            labelText: 'Stream Path',
-                            hintText: '/stream',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Please enter the RTSP path';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: genericRtspUsernameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Username',
-                            hintText: 'Optional RTSP username',
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: genericRtspPasswordController,
-                          decoration: InputDecoration(
-                            labelText: 'Password',
-                            hintText: 'Optional RTSP password',
-                            suffixIcon: IconButton(
-                              tooltip: _showGenericRtspPassword
-                                  ? 'Hide password'
-                                  : 'Show password',
-                              icon: Icon(
-                                _showGenericRtspPassword
-                                    ? Icons.visibility_off
-                                    : Icons.visibility,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _showGenericRtspPassword =
-                                      !_showGenericRtspPassword;
-                                });
-                              },
-                            ),
-                          ),
-                          obscureText: !_showGenericRtspPassword,
-                          enableSuggestions: false,
-                          autocorrect: false,
-                        ),
-                        const SizedBox(height: 10),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Use secure RTSP (RTSPS)'),
-                          subtitle: const Text(
-                            'Switch between rtsp:// and rtsps:// transport.',
-                          ),
-                          value: _genericRtspSecure,
-                          onChanged: (v) =>
-                              setState(() => _genericRtspSecure = v),
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Generated URL will be:',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          _generateUrl(),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-
-                      // Show custom URL input for Custom format
-                      if (selectedFormat == PrinterUrlType.custom) ...[
-                        TextFormField(
-                          controller: customUrlController,
-                          decoration: const InputDecoration(
-                            labelText: 'Custom RTSP URL',
-                            hintText: 'Enter your custom RTSP URL',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter a custom RTSP URL';
-                            }
-                            if (!value.startsWith('rtsp://') &&
-                                !value.startsWith('rtsps://')) {
-                              return 'URL must start with rtsp:// or rtsps://';
-                            }
-                            return null;
-                          },
-                        ),
-                      ],
-
-                      const SizedBox(height: 30),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Auto-connect on launch'),
-                        subtitle: const Text(
-                          'Automatically connect when this config is valid.',
-                        ),
-                        value: _autoConnect,
-                        onChanged: (v) => setState(() => _autoConnect = v),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Enable MQTT controls'),
-                        subtitle: const Text(
-                          'Show advanced MQTT control panel (use with care).',
-                        ),
-                        value: _mqttControlsEnabled,
-                        onChanged: (v) =>
-                            setState(() => _mqttControlsEnabled = v),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Enable hardware video acceleration'),
-                        subtitle: const Text(
-                          'Disable to force software decoding/rendering.',
-                        ),
-                        value: _hardwareAccelerationEnabled,
-                        onChanged: (v) =>
-                            setState(() => _hardwareAccelerationEnabled = v),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Use hardware decode copy path'),
-                        subtitle: const Text(
-                          'Keep hardware decoding but copy frames for screenshots.',
-                        ),
-                        value: _hardwareAccelerationCopyEnabled,
-                        onChanged: (v) => setState(
-                          () => _hardwareAccelerationCopyEnabled = v,
-                        ),
-                      ),
-                      if (_supportsLinuxSystemDecorations)
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Use system window decorations'),
-                          subtitle: const Text(
-                            'Try native Linux title bars and compositor-provided rounded corners.',
-                          ),
-                          value: _linuxUseSystemWindowDecorations,
-                          onChanged: (v) => setState(
-                            () => _linuxUseSystemWindowDecorations = v,
-                          ),
-                        ),
-                      const SizedBox(height: 20),
-
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        runAlignment: WrapAlignment.center,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 12,
-                        runSpacing: 12,
+            builder: (context, constraints) {
+              final bottomPadding =
+                  40 + MediaQuery.viewPaddingOf(context).bottom;
+              return Scrollbar(
+                controller: _scrollController,
+                thumbVisibility: true,
+                trackVisibility: true,
+                child: SingleChildScrollView(
+                  controller: _scrollController,
+                  padding: EdgeInsets.fromLTRB(20, 20, 20, bottomPadding),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight - bottomPadding,
+                    ),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          ElevatedButton(
-                            onPressed: _checkingFirewall
-                                ? null
-                                : () async {
-                                    if (_formKey.currentState!.validate()) {
-                                      await _saveSettings();
-                                      if (!context.mounted) return;
-                                      Navigator.of(context).pop();
-                                    }
-                                  },
-                            child: const Text('Save'),
-                          ),
-                          ElevatedButton(
-                            onPressed: _showSettingsQrCode,
-                            child: const Text('Show QR'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () async {
-                              await _exportToJson();
-                            },
-                            child: const Text('Export'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () async {
-                              await _importFromJson();
-                            },
-                            child: const Text('Import'),
-                          ),
-                          if (_supportsQrScan)
-                            ElevatedButton(
-                              onPressed: _scanQrConfig,
-                              child: const Text('Scan QR'),
+                          const Text(
+                            'URL Format:',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
                             ),
-                          ElevatedButton(
-                            onPressed: _checkingFirewall
-                                ? null
-                                : () async {
-                                    final canConnect =
-                                        await _runConnectionPreflight();
-                                    if (!canConnect) return;
-                                    final generatedUrl = _generateUrl();
-                                    if (mounted && widget.onConnect != null) {
-                                      widget.onConnect!(generatedUrl);
-                                    }
-                                    if (!context.mounted) return;
-                                    Navigator.of(context).pop();
+                          ),
+                          const SizedBox(height: 10),
+                          DropdownButton<PrinterUrlType>(
+                            value: selectedFormat,
+                            isExpanded: true,
+                            items: PrinterUrlType.values
+                                .map(
+                                  (t) => DropdownMenuItem<PrinterUrlType>(
+                                    value: t,
+                                    child: Text(t.displayName),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (PrinterUrlType? newValue) {
+                              setState(() {
+                                selectedFormat = newValue!;
+                                final defaultCount =
+                                    selectedFormat.defaultCameraCount;
+                                final currentCount =
+                                    _resolveCameraStreamCount();
+                                if (selectedFormat.isBambuFamily &&
+                                    (currentCount < defaultCount ||
+                                        currentCount >
+                                            selectedFormat.maxCameraCount)) {
+                                  cameraStreamCountController.text =
+                                      currentCount
+                                          .clamp(
+                                            defaultCount,
+                                            selectedFormat.maxCameraCount,
+                                          )
+                                          .toString();
+                                  _selectedCameraIndex = 0;
+                                }
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 20),
+
+                          // Show template variable inputs for Bambu X1C format
+                          if (selectedFormat == PrinterUrlType.bambuX1C ||
+                              selectedFormat == PrinterUrlType.bambuP1S ||
+                              selectedFormat == PrinterUrlType.bambuX2C ||
+                              selectedFormat == PrinterUrlType.bambuH2C ||
+                              selectedFormat == PrinterUrlType.bambuH2D ||
+                              selectedFormat == PrinterUrlType.bambuH2S) ...[
+                            TextFormField(
+                              controller: specialCodeController,
+                              obscureText: !_showSpecialCode,
+                              enableSuggestions: false,
+                              autocorrect: false,
+                              decoration: InputDecoration(
+                                labelText: 'Special Code',
+                                hintText: 'Enter your printer\'s special code',
+                                suffixIcon: IconButton(
+                                  tooltip: _showSpecialCode
+                                      ? 'Hide special code'
+                                      : 'Show special code',
+                                  icon: Icon(
+                                    _showSpecialCode
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _showSpecialCode = !_showSpecialCode;
+                                    });
                                   },
-                            child: _checkingFirewall
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Text('Connect'),
+                                ),
+                              ),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Please enter the special code';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                            TextFormField(
+                              controller: printerIpController,
+                              decoration: const InputDecoration(
+                                labelText: 'Printer IP Address',
+                                hintText: 'e.g., 192.168.1.100',
+                              ),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Please enter the printer IP address';
+                                }
+                                // Basic IP validation
+                                final ipRegExp = RegExp(
+                                  r'^(\d{1,3}\.){3}\d{1,3}$',
+                                );
+                                if (!ipRegExp.hasMatch(value)) {
+                                  return 'Please enter a valid IP address';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                            TextFormField(
+                              controller: serialNumberController,
+                              decoration: const InputDecoration(
+                                labelText: 'Serial Number',
+                                hintText: 'Enter your printer\'s serial number',
+                              ),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Please enter the serial number';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                            TextFormField(
+                              controller: cameraStreamCountController,
+                              decoration: InputDecoration(
+                                labelText: 'Camera Stream Count',
+                                hintText:
+                                    selectedFormat.isIndexedDualCameraBambu
+                                    ? '2'
+                                    : '1',
+                              ),
+                              keyboardType: TextInputType.number,
+                              validator: (value) {
+                                final count = int.tryParse(
+                                  (value ?? '').trim(),
+                                );
+                                if (count == null || count < 1) {
+                                  return 'Please enter a valid camera count';
+                                }
+                                if (count > selectedFormat.maxCameraCount) {
+                                  return '${selectedFormat.displayName} supports '
+                                      '${selectedFormat.maxCameraCount} LAN camera stream${selectedFormat.maxCameraCount == 1 ? '' : 's'}';
+                                }
+                                return null;
+                              },
+                              onChanged: (_) {
+                                final count = _resolveCameraStreamCount();
+                                if (_selectedCameraIndex >= count) {
+                                  setState(() {
+                                    _selectedCameraIndex = count - 1;
+                                  });
+                                }
+                              },
+                            ),
+                            if (_resolveCameraStreamCount() > 1) ...[
+                              const SizedBox(height: 10),
+                              DropdownButtonFormField<int>(
+                                value: _resolveSelectedCameraIndex(),
+                                decoration: const InputDecoration(
+                                  labelText: 'Default Camera',
+                                ),
+                                items: List.generate(
+                                  _resolveCameraStreamCount(),
+                                  (i) => DropdownMenuItem<int>(
+                                    value: i,
+                                    child: Text('Camera ${i + 1}'),
+                                  ),
+                                ),
+                                onChanged: (value) {
+                                  if (value == null) return;
+                                  setState(() => _selectedCameraIndex = value);
+                                },
+                              ),
+                            ],
+                            const SizedBox(height: 10),
+                            const Text(
+                              'Generated URL will be:',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              _generateUrl(),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                            if (_lastConnectionCheck != null) ...[
+                              const SizedBox(height: 16),
+                              _buildConnectionCheckCard(_lastConnectionCheck!),
+                            ],
+                          ],
+
+                          if (selectedFormat == PrinterUrlType.genericRtsp) ...[
+                            TextFormField(
+                              controller: printerIpController,
+                              decoration: const InputDecoration(
+                                labelText: 'RTSP Host / IP Address',
+                                hintText: 'e.g., 192.168.1.100',
+                              ),
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Please enter the RTSP host or IP address';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                            TextFormField(
+                              controller: genericRtspPortController,
+                              decoration: const InputDecoration(
+                                labelText: 'RTSP Port',
+                                hintText: '554',
+                              ),
+                              keyboardType: TextInputType.number,
+                              validator: (value) {
+                                final port = int.tryParse((value ?? '').trim());
+                                if (port == null || port < 1 || port > 65535) {
+                                  return 'Please enter a valid port';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                            TextFormField(
+                              controller: genericRtspPathController,
+                              decoration: const InputDecoration(
+                                labelText: 'Stream Path',
+                                hintText: '/stream',
+                              ),
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Please enter the RTSP path';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                            TextFormField(
+                              controller: genericRtspUsernameController,
+                              decoration: const InputDecoration(
+                                labelText: 'Username',
+                                hintText: 'Optional RTSP username',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextFormField(
+                              controller: genericRtspPasswordController,
+                              decoration: InputDecoration(
+                                labelText: 'Password',
+                                hintText: 'Optional RTSP password',
+                                suffixIcon: IconButton(
+                                  tooltip: _showGenericRtspPassword
+                                      ? 'Hide password'
+                                      : 'Show password',
+                                  icon: Icon(
+                                    _showGenericRtspPassword
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _showGenericRtspPassword =
+                                          !_showGenericRtspPassword;
+                                    });
+                                  },
+                                ),
+                              ),
+                              obscureText: !_showGenericRtspPassword,
+                              enableSuggestions: false,
+                              autocorrect: false,
+                            ),
+                            const SizedBox(height: 10),
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Use secure RTSP (RTSPS)'),
+                              subtitle: const Text(
+                                'Switch between rtsp:// and rtsps:// transport.',
+                              ),
+                              value: _genericRtspSecure,
+                              onChanged: (v) =>
+                                  setState(() => _genericRtspSecure = v),
+                            ),
+                            const SizedBox(height: 10),
+                            const Text(
+                              'Generated URL will be:',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              _generateUrl(),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+
+                          // Show custom URL input for Custom format
+                          if (selectedFormat == PrinterUrlType.custom) ...[
+                            TextFormField(
+                              controller: customUrlController,
+                              decoration: const InputDecoration(
+                                labelText: 'Custom RTSP URL',
+                                hintText: 'Enter your custom RTSP URL',
+                              ),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Please enter a custom RTSP URL';
+                                }
+                                if (!value.startsWith('rtsp://') &&
+                                    !value.startsWith('rtsps://')) {
+                                  return 'URL must start with rtsp:// or rtsps://';
+                                }
+                                return null;
+                              },
+                            ),
+                          ],
+
+                          if (_lastDiagnostics != null) ...[
+                            const SizedBox(height: 16),
+                            _buildDiagnosticsCard(_lastDiagnostics!),
+                          ],
+
+                          const SizedBox(height: 30),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Auto-connect on launch'),
+                            subtitle: const Text(
+                              'Automatically connect when this config is valid.',
+                            ),
+                            value: _autoConnect,
+                            onChanged: (v) => setState(() => _autoConnect = v),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Enable MQTT controls'),
+                            subtitle: const Text(
+                              'Show advanced MQTT control panel (use with care).',
+                            ),
+                            value: _mqttControlsEnabled,
+                            onChanged: (v) =>
+                                setState(() => _mqttControlsEnabled = v),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text(
+                              'Enable hardware video acceleration',
+                            ),
+                            subtitle: const Text(
+                              'Disable to force software decoding/rendering.',
+                            ),
+                            value: _hardwareAccelerationEnabled,
+                            onChanged: (v) => setState(
+                              () => _hardwareAccelerationEnabled = v,
+                            ),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Use hardware decode copy path'),
+                            subtitle: const Text(
+                              'Keep hardware decoding but copy frames for screenshots.',
+                            ),
+                            value: _hardwareAccelerationCopyEnabled,
+                            onChanged: (v) => setState(
+                              () => _hardwareAccelerationCopyEnabled = v,
+                            ),
+                          ),
+                          if (_supportsLinuxSystemDecorations)
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text(
+                                'Use system window decorations',
+                              ),
+                              subtitle: const Text(
+                                'Try native Linux title bars and compositor-provided rounded corners.',
+                              ),
+                              value: _linuxUseSystemWindowDecorations,
+                              onChanged: (v) => setState(
+                                () => _linuxUseSystemWindowDecorations = v,
+                              ),
+                            ),
+                          const SizedBox(height: 20),
+
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            runAlignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              ElevatedButton(
+                                onPressed: _checkingFirewall
+                                    ? null
+                                    : () async {
+                                        if (_formKey.currentState!.validate()) {
+                                          await _saveSettings();
+                                          if (!context.mounted) return;
+                                          Navigator.of(context).pop();
+                                        }
+                                      },
+                                child: const Text('Save'),
+                              ),
+                              ElevatedButton(
+                                onPressed: _showSettingsQrCode,
+                                child: const Text('Show QR'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () async {
+                                  await _exportToJson();
+                                },
+                                child: const Text('Export'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () async {
+                                  await _importFromJson();
+                                },
+                                child: const Text('Import'),
+                              ),
+                              if (_supportsQrScan)
+                                ElevatedButton(
+                                  onPressed: _scanQrConfig,
+                                  child: const Text('Scan QR'),
+                                ),
+                              ElevatedButton(
+                                onPressed: _checkingFirewall
+                                    ? null
+                                    : () async {
+                                        final canConnect =
+                                            await _runConnectionPreflight();
+                                        if (!canConnect) return;
+                                        final generatedUrl = _generateUrl();
+                                        if (mounted &&
+                                            widget.onConnect != null) {
+                                          widget.onConnect!(generatedUrl);
+                                        }
+                                        if (!context.mounted) return;
+                                        Navigator.of(context).pop();
+                                      },
+                                child: _checkingFirewall
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Text('Connect'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed:
+                                    (_checkingFirewall || _runningDiagnostics)
+                                    ? null
+                                    : _runConnectionDiagnostics,
+                                icon: _runningDiagnostics
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.travel_explore),
+                                label: const Text('Run Diagnostics'),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ),
       ),

@@ -19,14 +19,26 @@ function(list_prepend LIST_NAME PREFIX)
     set(${LIST_NAME} "${NEW_LIST}" PARENT_SCOPE)
 endfunction()
 
+if(NOT DEFINED LINUX_GTK_PKG)
+  message(FATAL_ERROR "LINUX_GTK_PKG must be set before including linux_flutter_common.cmake")
+endif()
+
+if(NOT DEFINED LINUX_GTK_DEFINE)
+  message(FATAL_ERROR "LINUX_GTK_DEFINE must be set before including linux_flutter_common.cmake")
+endif()
+
 # === Flutter Library ===
 # System-level dependencies.
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk4)
+pkg_check_modules(GTK REQUIRED IMPORTED_TARGET ${LINUX_GTK_PKG})
 pkg_check_modules(GLIB REQUIRED IMPORTED_TARGET glib-2.0)
 pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
 
-set(FLUTTER_LIBRARY "${EPHEMERAL_DIR}/libflutter_linux_gtk.so")
+if("${LINUX_GTK_VARIANT}" STREQUAL "gtk4")
+  set(FLUTTER_LIBRARY "${EPHEMERAL_DIR}/libflutter_linux_gtk4.so")
+else()
+  set(FLUTTER_LIBRARY "${EPHEMERAL_DIR}/libflutter_linux_gtk.so")
+endif()
 
 # Published to parent scope for install step.
 set(FLUTTER_LIBRARY ${FLUTTER_LIBRARY} PARENT_SCOPE)
@@ -58,7 +70,7 @@ list(APPEND FLUTTER_LIBRARY_HEADERS
 )
 list_prepend(FLUTTER_LIBRARY_HEADERS "${EPHEMERAL_DIR}/flutter_linux/")
 add_library(flutter INTERFACE)
-target_compile_definitions(flutter INTERFACE FLUTTER_LINUX_GTK4)
+target_compile_definitions(flutter INTERFACE ${LINUX_GTK_DEFINE})
 target_include_directories(flutter INTERFACE
   "${EPHEMERAL_DIR}"
 )

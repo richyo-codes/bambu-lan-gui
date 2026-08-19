@@ -41,6 +41,219 @@ String? buildTitleSummary(BambuPrintStatus? ps) {
   return lines.join(' • ');
 }
 
+bool isPrintPaused(BambuPrintStatus? status) {
+  final state = status?.gcodeState.trim().toUpperCase();
+  return state == 'PAUSE' || state == 'PAUSED';
+}
+
+bool isPrintActive(BambuPrintStatus? status) {
+  final state = status?.gcodeState.trim().toUpperCase();
+  return state == 'RUNNING' || state == 'PREPARE' || isPrintPaused(status);
+}
+
+String printStageLabel(BambuPrintStatus status) {
+  final state = status.gcodeState.trim().toUpperCase();
+  if (isPrintPaused(status)) return 'Paused';
+  if (state == 'FINISH') return 'Finished';
+  if (state == 'IDLE') return 'Idle';
+  if (status.stage == 2 && state == 'RUNNING' && (status.layer ?? 0) > 0) {
+    return 'Printing';
+  }
+  const stages = <int, String>{
+    0: 'Printing',
+    1: 'Auto bed leveling',
+    2: 'Heating bed',
+    3: 'Vibration compensation',
+    4: 'Changing filament',
+    5: 'Paused by G-code',
+    6: 'Paused: filament ran out',
+    7: 'Heating nozzle',
+    10: 'Inspecting first layer',
+    13: 'Homing toolhead',
+    16: 'Paused by user',
+    20: 'Paused: nozzle temperature',
+    21: 'Paused: bed temperature',
+    22: 'Unloading filament',
+    24: 'Loading filament',
+    26: 'Paused: AMS offline',
+    32: 'Paused: nozzle clumping',
+    33: 'Paused: cutter error',
+    34: 'Paused: first-layer error',
+    77: 'Preparing AMS',
+  };
+  return stages[status.stage] ??
+      (state.isEmpty || state == 'PRINT' ? 'Printer status updating' : state);
+}
+
+class PrintControlButtons extends StatelessWidget {
+  final BambuPrintStatus? status;
+  final bool mqttConnected;
+  final bool busy;
+  final VoidCallback onPause;
+  final VoidCallback onResume;
+  final VoidCallback onCancel;
+
+  const PrintControlButtons({
+    super.key,
+    required this.status,
+    required this.mqttConnected,
+    required this.busy,
+    required this.onPause,
+    required this.onResume,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isPrintActive(status)) return const SizedBox.shrink();
+    final paused = isPrintPaused(status);
+    final enabled = mqttConnected && !busy;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        FilledButton.icon(
+          onPressed: enabled ? (paused ? onResume : onPause) : null,
+          icon: busy
+              ? const SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(paused ? Icons.play_arrow : Icons.pause),
+          label: Text(paused ? 'Resume print' : 'Pause print'),
+        ),
+        OutlinedButton.icon(
+          onPressed: enabled ? onCancel : null,
+          icon: const Icon(Icons.stop_circle_outlined),
+          label: const Text('Cancel print'),
+          style: OutlinedButton.styleFrom(foregroundColor: Colors.redAccent),
+        ),
+      ],
+    );
+  }
+}
+
+class PrinterFaultBanner extends StatelessWidget {
+  final BambuPrintStatus status;
+  final VoidCallback? onOpenHmsGuide;
+
+  const PrinterFaultBanner({
+    super.key,
+    required this.status,
+    this.onOpenHmsGuide,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!status.hasPrinterFault &&
+        (status.printerMessage == null || status.printerMessage!.isEmpty)) {
+      return const SizedBox.shrink();
+    }
+    final hms = status.hms.isEmpty ? null : status.hms.first;
+    final message = status.printerMessage?.trim().isNotEmpty == true
+        ? status.printerMessage!
+        : hms != null
+        ? 'Hardware fault ${hms.displayCode} reported by the printer.'
+        : 'Printer error ${status.printError} reported by the printer.';
+    return MaterialBanner(
+      backgroundColor: Theme.of(context).colorScheme.errorContainer,
+      leading: Icon(
+        Icons.error_outline,
+        color: Theme.of(context).colorScheme.onErrorContainer,
+      ),
+      content: Text(
+        message,
+        style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+      ),
+      actions: [
+        if (hms != null && onOpenHmsGuide != null)
+          TextButton(onPressed: onOpenHmsGuide, child: const Text('Guidance')),
+      ],
+    );
+  }
+}
+
+class FilamentStatusPanel extends StatelessWidget {
+  final BambuPrintStatus status;
+
+  const FilamentStatusPanel({super.key, required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final active = status.activeFilament;
+    if (active == null) return const SizedBox.shrink();
+    final remaining = active.remainingPercent;
+    final details = [
+      if (active.name?.isNotEmpty == true) active.name!,
+      if (active.type?.isNotEmpty == true) active.type!,
+    ];
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Filament', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                if (_trayColor(active.color) case final swatch?) ...[
+                  swatch,
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        active.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      if (details.isNotEmpty)
+                        Text(
+                          details.join(' · '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                    ],
+                  ),
+                ),
+                if (remaining != null) ...[
+                  const SizedBox(width: 12),
+                  Text('$remaining%'),
+                ],
+              ],
+            ),
+            if (remaining != null) ...[
+              const SizedBox(height: 8),
+              LinearProgressIndicator(value: remaining / 100),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget? _trayColor(String? raw) {
+    final value = raw?.trim() ?? '';
+    if (value.length != 8) return null;
+    final color = int.tryParse(value, radix: 16);
+    if (color == null) return null;
+    return CircleAvatar(
+      radius: 9,
+      backgroundColor: Color.fromARGB(
+        (color & 0xff).toInt(),
+        ((color >> 24) & 0xff).toInt(),
+        ((color >> 16) & 0xff).toInt(),
+        ((color >> 8) & 0xff).toInt(),
+      ),
+    );
+  }
+}
+
 class MetricsPanel extends StatelessWidget {
   final BambuPrintStatus ps;
   const MetricsPanel({super.key, required this.ps});
@@ -129,9 +342,7 @@ class PrintOverlayStatus extends StatelessWidget {
     }
 
     final parts = <String>[];
-    if (status!.gcodeState.isNotEmpty) {
-      parts.add(status!.gcodeState);
-    }
+    parts.add(printStageLabel(status!));
     if (status!.percent != null) {
       parts.add('${status!.percent}%');
     }

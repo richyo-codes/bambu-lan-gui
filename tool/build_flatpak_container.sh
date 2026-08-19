@@ -19,10 +19,12 @@ EOF
 }
 
 OUT_DIR="$DEFAULT_OUT_DIR"
+OUT_DIR_SOURCE="default"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tmp)
       OUT_DIR="$TMP_OUT_DIR"
+      OUT_DIR_SOURCE="tmp"
       shift
       ;;
     --out-dir)
@@ -31,6 +33,7 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       OUT_DIR="$2"
+      OUT_DIR_SOURCE="explicit"
       shift 2
       ;;
     -h|--help)
@@ -44,6 +47,28 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# OSTree refuses to write when less than 3% of the target filesystem remains.
+# Prefer /tmp automatically when the default cache location is below that
+# threshold; this avoids a late export failure after the full build completes.
+free_space_percent() {
+  df -Pk "$1" | awk 'NR == 2 { print int(($4 * 100) / $2) }'
+}
+
+if [[ "$OUT_DIR_SOURCE" == "default" ]]; then
+  DEFAULT_FREE_PERCENT=$(free_space_percent "$(dirname "$OUT_DIR")")
+  if [[ "$DEFAULT_FREE_PERCENT" -le 3 ]]; then
+    TMP_FREE_PERCENT=$(free_space_percent /tmp)
+    if [[ "$TMP_FREE_PERCENT" -gt 3 ]]; then
+      echo "Default Flatpak cache has ${DEFAULT_FREE_PERCENT}% free; using $TMP_OUT_DIR instead."
+      OUT_DIR="$TMP_OUT_DIR"
+    else
+      echo "Default Flatpak cache has ${DEFAULT_FREE_PERCENT}% free and /tmp has ${TMP_FREE_PERCENT}% free." >&2
+      echo "Choose --out-dir on a filesystem with more than 3% free space." >&2
+      exit 1
+    fi
+  fi
+fi
 
 mkdir -p "$OUT_DIR"
 OUT_DIR=$(cd "$OUT_DIR" && pwd)
@@ -76,20 +101,11 @@ fi
 
 # Use SELinux-safe mount label for Podman. Docker ignores ':Z'.
 MOUNT_SPEC="$ROOT_DIR:/src:Z"
-OUT_MOUNT_SPEC=
-CONTAINER_OUT_ROOT="$CONTAINER_ROOT/build"
-
-if [[ "$OUT_DIR" == "$DEFAULT_OUT_DIR" ]]; then
-  CONTAINER_BUILD_DIR="$CONTAINER_ROOT/build/flatpak"
-  CONTAINER_REPO_DIR="$CONTAINER_ROOT/build/flatpak-repo"
-  CONTAINER_BUNDLE_PATH="$CONTAINER_ROOT/build/com.rnd.boomprint.flatpak"
-else
-  OUT_MOUNT_SPEC="-v $OUT_DIR:/out:Z"
-  CONTAINER_OUT_ROOT="/out"
-  CONTAINER_BUILD_DIR="$CONTAINER_OUT_ROOT/flatpak"
-  CONTAINER_REPO_DIR="$CONTAINER_OUT_ROOT/flatpak-repo"
-  CONTAINER_BUNDLE_PATH="$CONTAINER_OUT_ROOT/com.rnd.boomprint.flatpak"
-fi
+OUT_MOUNT_SPEC="-v $OUT_DIR:/out:Z"
+CONTAINER_OUT_ROOT="/out"
+CONTAINER_BUILD_DIR="$CONTAINER_OUT_ROOT/flatpak"
+CONTAINER_REPO_DIR="$CONTAINER_OUT_ROOT/flatpak-repo"
+CONTAINER_BUNDLE_PATH="$CONTAINER_OUT_ROOT/com.rnd.boomprint.flatpak"
 
 TTY_ARGS=()
 if [[ -t 0 && -t 1 ]]; then
@@ -108,7 +124,8 @@ CONTAINER_COMMAND="
     org.freedesktop.Sdk/x86_64/25.08 \
     org.freedesktop.Platform/x86_64/25.08
 
-  flatpak-builder --disable-rofiles-fuse --force-clean '$CONTAINER_BUILD_DIR' '$CONTAINER_MANIFEST'
+  # Workaround for flatpak-builder filesystem path issues
+  flatpak-builder --disable-rofiles-fuse --force-clean --build-only '$CONTAINER_BUILD_DIR' '$CONTAINER_MANIFEST'
   flatpak-builder --disable-rofiles-fuse --force-clean --repo='$CONTAINER_REPO_DIR' '$CONTAINER_BUILD_DIR' '$CONTAINER_MANIFEST'
   flatpak build-bundle '$CONTAINER_REPO_DIR' '$CONTAINER_BUNDLE_PATH' '$APP_ID'
 "
@@ -123,9 +140,10 @@ if [[ "$ENGINE" == "docker" ]] && [[ -n "${CI:-}${GITHUB_ACTIONS:-}${GITEA_ACTIO
 fi
 
 if [[ "$USE_COPY_MODE" == "1" ]]; then
-  CONTAINER_BUILD_DIR="$CONTAINER_ROOT/build/flatpak"
-  CONTAINER_REPO_DIR="$CONTAINER_ROOT/build/flatpak-repo"
-  CONTAINER_BUNDLE_PATH="$CONTAINER_ROOT/build/com.rnd.boomprint.flatpak"
+  # Use the correct paths for the build directory when in copy mode
+  CONTAINER_BUILD_DIR="$CONTAINER_OUT_ROOT/flatpak"
+  CONTAINER_REPO_DIR="$CONTAINER_OUT_ROOT/flatpak-repo"
+  CONTAINER_BUNDLE_PATH="$CONTAINER_OUT_ROOT/com.rnd.boomprint.flatpak"
 
   CONTAINER_ID=$(
     "$ENGINE" create \
@@ -153,7 +171,7 @@ else
     --security-opt label=disable \
     --entrypoint /bin/bash \
     -v "$MOUNT_SPEC" \
-    ${OUT_MOUNT_SPEC:+-v "$OUT_DIR:/out:Z"} \
+    $OUT_MOUNT_SPEC \
     -w /src \
     "$IMAGE" \
     -lc "$CONTAINER_COMMAND"

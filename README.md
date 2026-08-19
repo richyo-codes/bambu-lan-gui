@@ -51,6 +51,26 @@ The app previews the generated URL for the selected format and keeps the same se
 - Linux
 - Windows
 
+## Screenshots
+
+### Stream & Status
+
+![Stream view](screenshots/stream-view.png)
+
+*Live camera stream with print status overlay and controls.*
+
+### FTP Browser
+
+![FTP Browser](screenshots/ftp-browser.png)
+
+*Browse printer SD card files and submit prints.*
+
+### Settings
+
+![Settings](screenshots/settings.png)
+
+*Configure printer connection, URL format, and import/export settings.*
+
 ## Development Notes
 
 - GTK4 rendering internals and fallback logic: `docs/GTK4_VIDEO_RENDERING.md`

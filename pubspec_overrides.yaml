@@ -1,50 +1,51 @@
 dependency_overrides:
+
   media_kit:
     git:
       url: https://github.com/richyo-codes/media-kit.git
-      ref: gtk4-flutter-4
+      ref: gtk4-stable-2
       path: media_kit
 
   media_kit_video:
     git:
       url: https://github.com/richyo-codes/media-kit.git
-      ref: gtk4-flutter-4
+      ref: gtk4-stable-2
       path: media_kit_video
 
   media_kit_libs_video:
     git:
       url: https://github.com/richyo-codes/media-kit.git
-      ref: gtk4-flutter-4
+      ref: gtk4-stable-2
       path: libs/universal/media_kit_libs_video
 
   media_kit_libs_linux:
     git:
       url: https://github.com/richyo-codes/media-kit.git
-      ref: gtk4-flutter-4
+      ref: gtk4-stable-2
       path: libs/linux/media_kit_libs_linux
 
   media_kit_libs_windows_video:
     git:
       url: https://github.com/richyo-codes/media-kit.git
-      ref: gtk4-flutter-4
+      ref: gtk4-stable-2
       path: libs/windows/media_kit_libs_windows_video
 
   media_kit_libs_macos_video:
     git:
       url: https://github.com/richyo-codes/media-kit.git
-      ref: gtk4-flutter-4
+      ref: gtk4-stable-2
       path: libs/macos/media_kit_libs_macos_video
 
   media_kit_libs_ios_video:
     git:
       url: https://github.com/richyo-codes/media-kit.git
-      ref: gtk4-flutter-4
+      ref: gtk4-stable-2
       path: libs/ios/media_kit_libs_ios_video
 
   media_kit_libs_android_video:
     git:
       url: https://github.com/richyo-codes/media-kit.git
-      ref: gtk4-flutter-4
+      ref: gtk4-stable-2
       path: libs/android/media_kit_libs_android_video
 
   ftpconnect:
@@ -55,4 +56,4 @@ dependency_overrides:
     git:
       url: https://github.com/richyo-codes/packages
       path: packages/url_launcher/url_launcher_linux
-      ref: feat-add-gtk4-support-url-launcher-v2
+      ref: feat-add-gtk4-support-url-launcher-v3

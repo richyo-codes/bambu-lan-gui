@@ -53,10 +53,12 @@ class AppSettings {
       return settings;
     }
 
-    final count =
-        settings.cameraStreamCount < settings.selectedFormat.defaultCameraCount
-        ? settings.selectedFormat.defaultCameraCount
-        : settings.cameraStreamCount;
+    final count = settings.cameraStreamCount
+        .clamp(
+          settings.selectedFormat.defaultCameraCount,
+          settings.selectedFormat.maxCameraCount,
+        )
+        .toInt();
     settings.cameraStreamCount = count;
     if (settings.selectedCameraIndex < 0) {
       settings.selectedCameraIndex = 0;

@@ -9,6 +9,8 @@ import 'package:boomprint/feature_flags.dart';
 import 'package:boomprint/connection_controller.dart';
 import 'package:boomprint/settings_manager.dart';
 import 'package:boomprint/monitoring_alerts.dart';
+import 'package:boomprint/printer_camera_streams.dart';
+import 'package:boomprint/printer_firmware.dart';
 import 'package:boomprint/sensitive_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -16,10 +18,17 @@ import 'package:flutter/foundation.dart';
 import 'settings_page.dart';
 import 'stream_page_widgets.dart';
 import 'ftp_browser_page.dart';
+import 'screenshot_gallery_page.dart';
+import 'screenshot_storage.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:path_provider/path_provider.dart';
 import 'window_drag_controller.dart';
+
+// GTK4 Linux video texture interop mode for local testing.
+// const LinuxGtk4TextureInterop kLinuxGtk4TextureInterop =
+//     LinuxGtk4TextureInterop.eglImageBridge;
+const LinuxGtk4TextureInterop kLinuxGtk4TextureInterop =
+    LinuxGtk4TextureInterop.directSharedTexture;
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,6 +50,7 @@ void main(List<String> args) async {
   // debugPrint(
   //   'media_kit: libmpv client API version ${MediaKit.libmpvClientApiVersion}',
   // );
+
   runApp(const MyApp());
 }
 
@@ -173,45 +183,63 @@ _CliConfig _parseCliArgs(List<String> args) {
 
 class MyApp extends StatelessWidget {
   final GlobalKey? rootBoundaryKey;
+  final ConnectionController? connectionController;
+  final bool demoVideoSurface;
 
-  const MyApp({super.key, this.rootBoundaryKey});
+  const MyApp({
+    super.key,
+    this.rootBoundaryKey,
+    this.connectionController,
+    this.demoVideoSurface = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final app = ChangeNotifierProvider(
-      create: (_) => ConnectionController(),
-      child: MaterialApp(
-        title: AppStrings.appDisplayName,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.blue,
-            brightness: Brightness.light,
-          ),
-          useMaterial3: true,
-        ),
-        darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.blue,
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-        ),
-        themeMode: ThemeMode.system,
-        home: const StreamPage(),
-        debugShowCheckedModeBanner: false,
-      ),
-    );
+    final provider = connectionController == null
+        ? ChangeNotifierProvider(
+            create: (_) => ConnectionController(),
+            child: _buildMaterialApp(),
+          )
+        : ChangeNotifierProvider.value(
+            value: connectionController!,
+            child: _buildMaterialApp(),
+          );
 
     if (rootBoundaryKey == null) {
-      return app;
+      return provider;
     }
 
-    return RepaintBoundary(key: rootBoundaryKey, child: app);
+    return RepaintBoundary(key: rootBoundaryKey, child: provider);
+  }
+
+  Widget _buildMaterialApp() {
+    return MaterialApp(
+      title: AppStrings.appDisplayName,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: Brightness.light,
+        ),
+        useMaterial3: true,
+      ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+      ),
+      themeMode: ThemeMode.system,
+      home: StreamPage(demoVideoSurface: demoVideoSurface),
+      debugShowCheckedModeBanner: false,
+    );
   }
 }
 
 class StreamPage extends StatefulWidget {
-  const StreamPage({super.key});
+  final bool demoVideoSurface;
+
+  const StreamPage({super.key, this.demoVideoSurface = false});
 
   @override
   State<StreamPage> createState() => _StreamPageState();
@@ -219,6 +247,85 @@ class StreamPage extends StatefulWidget {
 
 bool isAccelSupported({TargetPlatform? platformOverride}) {
   return true;
+}
+
+class _StreamPageModel {
+  final bool isStreaming;
+  final BambuPrintStatus? printStatus;
+
+  const _StreamPageModel({
+    required this.isStreaming,
+    required this.printStatus,
+  });
+
+  @override
+  bool operator ==(Object other) {
+    return other is _StreamPageModel &&
+        other.isStreaming == isStreaming &&
+        other.printStatus == printStatus;
+  }
+
+  @override
+  int get hashCode => Object.hash(isStreaming, printStatus);
+}
+
+class _StreamActionsModel {
+  final List<PrinterCameraStream> cameraStreams;
+  final int selectedCameraIndex;
+  final BambuPrintStatus? printStatus;
+  final bool mqttConnected;
+  final bool? chamberLightOn;
+  final bool printCommandBusy;
+
+  const _StreamActionsModel({
+    required this.cameraStreams,
+    required this.selectedCameraIndex,
+    required this.printStatus,
+    required this.mqttConnected,
+    required this.chamberLightOn,
+    required this.printCommandBusy,
+  });
+
+  @override
+  bool operator ==(Object other) {
+    return other is _StreamActionsModel &&
+        listEquals(other.cameraStreams, cameraStreams) &&
+        other.selectedCameraIndex == selectedCameraIndex &&
+        other.printStatus == printStatus &&
+        other.mqttConnected == mqttConnected &&
+        other.chamberLightOn == chamberLightOn &&
+        other.printCommandBusy == printCommandBusy;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    Object.hashAll(cameraStreams),
+    selectedCameraIndex,
+    printStatus,
+    mqttConnected,
+    chamberLightOn,
+    printCommandBusy,
+  );
+}
+
+class _StreamingBodyModel {
+  final BambuPrintStatus? printStatus;
+  final PrinterFirmwareWarning? firmwareWarning;
+
+  const _StreamingBodyModel({
+    required this.printStatus,
+    required this.firmwareWarning,
+  });
+
+  @override
+  bool operator ==(Object other) {
+    return other is _StreamingBodyModel &&
+        other.printStatus == printStatus &&
+        other.firmwareWarning == firmwareWarning;
+  }
+
+  @override
+  int get hashCode => Object.hash(printStatus, firmwareWarning);
 }
 
 class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
@@ -263,32 +370,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   ConnectionController? _listeningController;
   BambuPrintStatus? _lastObservedPrintStatus;
 
-  ConnectionController get _connection => context.read<ConnectionController>();
+  static const double _metricsStripHeight = 80;
 
-  Future<Directory> _resolveScreenshotDir() async {
-    try {
-      if (Platform.isAndroid) {
-        // Use app-specific external storage (no special permissions required)
-        final base = await getExternalStorageDirectory();
-        final root = base ?? await getApplicationDocumentsDirectory();
-        return Directory(
-          path.join(root.path, 'Pictures', 'BoomPrint', 'Screenshots'),
-        );
-      }
-      if (Platform.isIOS) {
-        final base = await getApplicationDocumentsDirectory();
-        return Directory(path.join(base.path, 'BoomPrint', 'Screenshots'));
-      }
-      // Desktop/web fallbacks
-      final downloads = await getDownloadsDirectory();
-      final base = downloads ?? await getApplicationDocumentsDirectory();
-      return Directory(path.join(base.path, 'BoomPrint', 'Screenshots'));
-    } catch (_) {
-      // Last-resort: app documents
-      final base = await getApplicationDocumentsDirectory();
-      return Directory(path.join(base.path, 'BoomPrint', 'Screenshots'));
-    }
-  }
+  ConnectionController get _connection => context.read<ConnectionController>();
 
   Future<void> _takeScreenshot({bool useJpeg = false}) async {
     try {
@@ -316,17 +400,16 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         '[Screenshot] firstFrameReady=$firstFrameReady elapsed=${gateWatch.elapsedMilliseconds}ms',
       );
 
-      final screenshotData = await player.screenshot(
-        format: format,
-        includeLibassSubtitles: false,
-      );
+      final screenshotData = await player
+          .screenshot(format: format, includeLibassSubtitles: false)
+          .timeout(const Duration(seconds: 6));
       debugPrint(
         '[Screenshot] captureResult=${screenshotData == null ? 'null' : '${screenshotData.length} bytes'}',
       );
 
       if (screenshotData != null) {
         // Resolve a platform-appropriate, writable directory
-        final screenshotDir = await _resolveScreenshotDir();
+        final screenshotDir = await ScreenshotStorage.primaryDirectory();
         await screenshotDir.create(recursive: true);
 
         final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -434,6 +517,45 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _pauseOrResumePrint() async {
+    final paused = isPrintPaused(_connection.lastPrintStatus);
+    final error = paused
+        ? await _connection.resumePrint()
+        : await _connection.pausePrint();
+    if (!mounted) return;
+    _showVideoToast(
+      error ?? (paused ? 'Resume request sent.' : 'Pause request sent.'),
+      isError: error != null,
+    );
+  }
+
+  Future<void> _cancelPrint() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel print?'),
+        content: const Text(
+          'This stops the current job. The printer will not resume it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep printing'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Cancel print'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final error = await _connection.cancelPrint();
+    if (!mounted) return;
+    _showVideoToast(error ?? 'Cancel request sent.', isError: error != null);
+  }
+
   Widget _buildSpeedControls({
     required BuildContext context,
     required BambuPrintStatus? printStatus,
@@ -535,6 +657,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       configuration: VideoControllerConfiguration(
         enableHardwareAcceleration: enabled,
         hwdec: hwdec,
+        linuxGtk4TextureInterop: kLinuxGtk4TextureInterop,
       ),
     );
   }
@@ -580,7 +703,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
 
     if (shouldReopen) {
       try {
-        await _openMediaAndEnsurePlaying(reopenUrl!);
+        await _openMediaAndEnsurePlaying(reopenUrl);
       } catch (_) {
         // Keep current UI state; existing errors will surface if needed.
       }
@@ -652,6 +775,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     _listeningController?.removeListener(_handleConnectionStateChanged);
     player.dispose();
     unawaited(_connection.disposeController());
+
     super.dispose();
   }
 
@@ -700,13 +824,25 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Future<void> _stopStream() async {
-    await player.stop();
     _resumeProbeTimer?.cancel();
-    await _connection.stopStreaming();
+    _autoplayKickTimer?.cancel();
     _stallTimer?.cancel();
-    setState(() {
-      _wasPrinting = false;
-    });
+    if (mounted) {
+      setState(() {
+        _showVideoControls = false;
+        _wasPrinting = false;
+      });
+    }
+    await _connection.stopStreaming();
+    unawaited(_stopPlayerSafely());
+  }
+
+  Future<void> _stopPlayerSafely() async {
+    try {
+      await player.stop().timeout(const Duration(seconds: 2));
+    } catch (e) {
+      debugPrint('[Video] stop timed out or failed: $e');
+    }
   }
 
   void _handleAppBackgrounded() {
@@ -873,6 +1009,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       );
       return;
     }
+    // Desktop alerts use an attention sound only.
     unawaited(MonitoringAlerts.playAttentionSound());
   }
 
@@ -887,6 +1024,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       );
       return;
     }
+    // Desktop alerts use a completion sound only.
     unawaited(MonitoringAlerts.playSuccessSound());
   }
 
@@ -1154,9 +1292,6 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         return;
       }
 
-      // GTK4 startup can leave the player reporting paused or buffering
-      // before the first frame advances. Keep nudging play during the short
-      // startup window until playback is actually moving.
       if (!state.playing || state.position == Duration.zero) {
         await player.play();
       }
@@ -1197,7 +1332,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Widget _buildVideoSurface({required bool compactLayout}) {
-    final connection = context.watch<ConnectionController>();
+    final printStatus = context.select<ConnectionController, BambuPrintStatus?>(
+      (connection) => connection.lastPrintStatus,
+    );
     return MouseRegion(
       onEnter: (_) {
         setState(() {
@@ -1215,12 +1352,16 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
         onTap: _showControlsTemporarily,
         child: Stack(
           children: [
-            Positioned.fill(child: Video(controller: controller)),
-            if (connection.lastPrintStatus != null)
+            Positioned.fill(
+              child: widget.demoVideoSurface
+                  ? const _DemoVideoPreview()
+                  : Video(controller: controller),
+            ),
+            if (printStatus != null)
               Positioned(
                 left: 12,
                 top: 12,
-                child: PrintOverlayStatus(status: connection.lastPrintStatus),
+                child: PrintOverlayStatus(status: printStatus),
               ),
             if (_videoToastMessage != null)
               Positioned(
@@ -1301,15 +1442,32 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   }
 
   Widget _buildStreamActions({required bool compactLayout}) {
-    final connection = context.watch<ConnectionController>();
-    final hasMultipleCameras = connection.cameraStreams.length > 1;
-    final printStatus = connection.lastPrintStatus;
+    final model = context.select<ConnectionController, _StreamActionsModel>(
+      (connection) => _StreamActionsModel(
+        cameraStreams: connection.cameraStreams,
+        selectedCameraIndex: connection.selectedCameraIndex,
+        printStatus: connection.lastPrintStatus,
+        mqttConnected: connection.mqttConnected,
+        chamberLightOn: connection.chamberLightOn,
+        printCommandBusy: connection.printCommandBusy,
+      ),
+    );
+    final hasMultipleCameras = model.cameraStreams.length > 1;
+    final printStatus = model.printStatus;
+    final printControls = PrintControlButtons(
+      status: printStatus,
+      mqttConnected: model.mqttConnected,
+      busy: model.printCommandBusy,
+      onPause: _pauseOrResumePrint,
+      onResume: _pauseOrResumePrint,
+      onCancel: _cancelPrint,
+    );
     final lightButton = OutlinedButton.icon(
-      onPressed: (connection.mqttConnected || connection.chamberLightOn != null)
+      onPressed: (model.mqttConnected || model.chamberLightOn != null)
           ? _toggleChamberLight
           : null,
       icon: Icon(
-        connection.chamberLightOn == true
+        model.chamberLightOn == true
             ? Icons.lightbulb
             : Icons.lightbulb_outline,
       ),
@@ -1326,9 +1484,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                 const SizedBox(width: 12),
                 Expanded(
                   child: DropdownButton<int>(
-                    value: connection.selectedCameraIndex,
+                    value: model.selectedCameraIndex,
                     isExpanded: true,
-                    items: connection.cameraStreams
+                    items: model.cameraStreams
                         .map(
                           (stream) => DropdownMenuItem<int>(
                             value: stream.index,
@@ -1359,6 +1517,10 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 8),
           lightButton,
+          if (isPrintActive(printStatus)) ...[
+            const SizedBox(height: 8),
+            printControls,
+          ],
           if (FeatureFlags.speedControlEnabled) ...[
             const SizedBox(height: 8),
             _buildSpeedControls(
@@ -1393,9 +1555,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                   const Text('Camera'),
                   const SizedBox(width: 8),
                   DropdownButton<int>(
-                    value: connection.selectedCameraIndex,
+                    value: model.selectedCameraIndex,
                     underline: const SizedBox.shrink(),
-                    items: connection.cameraStreams
+                    items: model.cameraStreams
                         .map(
                           (stream) => DropdownMenuItem<int>(
                             value: stream.index,
@@ -1423,6 +1585,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
           label: const Text('Screenshot'),
         ),
         lightButton,
+        printControls,
         if (FeatureFlags.speedControlEnabled)
           _buildSpeedControls(
             context: context,
@@ -1437,15 +1600,31 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     BuildContext context, {
     required bool compactLayout,
   }) {
-    final connection = context.watch<ConnectionController>();
-    final firmwareBanner = connection.firmwareWarning == null
+    final model = context.select<ConnectionController, _StreamingBodyModel>(
+      (connection) => _StreamingBodyModel(
+        printStatus: connection.lastPrintStatus,
+        firmwareWarning: connection.firmwareWarning,
+      ),
+    );
+    final firmwareBanner = model.firmwareWarning == null
         ? null
         : FirmwareWarningBanner(
-            warning: connection.firmwareWarning!,
+            warning: model.firmwareWarning!,
             onOpenHelp: () {
-              final links = connection.firmwareWarning!.helpEntry.links;
+              final links = model.firmwareWarning!.helpEntry.links;
               if (links.isNotEmpty) {
                 _openExternalUrl(links.first.url);
+              }
+            },
+          );
+    final faultBanner = model.printStatus == null
+        ? null
+        : PrinterFaultBanner(
+            status: model.printStatus!,
+            onOpenHmsGuide: () {
+              final hms = model.printStatus!.hms;
+              if (hms.isNotEmpty) {
+                _openExternalUrl(hms.first.wikiUrl);
               }
             },
           );
@@ -1470,10 +1649,30 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
               minHeight: 4,
             ),
           ),
-        if (!compactLayout && connection.lastPrintStatus != null)
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: MetricsPanel(ps: connection.lastPrintStatus!),
+        if (!compactLayout)
+          SizedBox(
+            height: _metricsStripHeight,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+              child: ClipRect(
+                child: SingleChildScrollView(
+                  physics: const ClampingScrollPhysics(),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 150),
+                    child: model.printStatus == null
+                        ? const SizedBox.shrink()
+                        : MetricsPanel(
+                            key: ValueKey<String>(
+                              model.printStatus!.gcodeState.isEmpty
+                                  ? 'metrics'
+                                  : model.printStatus!.gcodeState,
+                            ),
+                            ps: model.printStatus!,
+                          ),
+                  ),
+                ),
+              ),
+            ),
           ),
       ],
     );
@@ -1482,6 +1681,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       return Column(
         children: [
           if (firmwareBanner != null) firmwareBanner,
+          if (faultBanner != null) faultBanner,
           Expanded(
             child: Row(
               children: [
@@ -1502,9 +1702,11 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            if (connection.lastPrintStatus != null)
-                              MetricsPanel(ps: connection.lastPrintStatus!),
-                            if (connection.lastPrintStatus != null)
+                            if (model.printStatus != null)
+                              MetricsPanel(ps: model.printStatus!),
+                            if (model.printStatus != null)
+                              FilamentStatusPanel(status: model.printStatus!),
+                            if (model.printStatus != null)
                               const SizedBox(height: 12),
                             _buildStreamActions(compactLayout: true),
                           ],
@@ -1523,7 +1725,13 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     return Column(
       children: [
         if (firmwareBanner != null) firmwareBanner,
+        if (faultBanner != null) faultBanner,
         Expanded(child: videoPane),
+        if (model.printStatus != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+            child: FilamentStatusPanel(status: model.printStatus!),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
           child: _buildStreamActions(compactLayout: false),
@@ -1552,6 +1760,12 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       ).push(MaterialPageRoute(builder: (_) => const FtpBrowserPage()));
     }
 
+    void openScreenshots() {
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const ScreenshotGalleryPage()));
+    }
+
     const compactHeaderThreshold = 980.0;
     final width = MediaQuery.of(context).size.width;
     final useOverflowMenu = width < compactHeaderThreshold;
@@ -1566,6 +1780,9 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
               case 'files':
                 openFiles();
                 break;
+              case 'screenshots':
+                openScreenshots();
+                break;
               case 'settings':
                 _openSettings();
                 break;
@@ -1574,6 +1791,10 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
           itemBuilder: (context) => [
             if (FeatureFlags.ftpBrowserEnabled)
               const PopupMenuItem<String>(value: 'files', child: Text('Files')),
+            const PopupMenuItem<String>(
+              value: 'screenshots',
+              child: Text('Screenshots'),
+            ),
             const PopupMenuItem<String>(
               value: 'settings',
               child: Text('Settings'),
@@ -1591,6 +1812,11 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
           onPressed: openFiles,
         ),
       IconButton(
+        tooltip: 'Screenshots',
+        icon: const Icon(Icons.photo_library),
+        onPressed: openScreenshots,
+      ),
+      IconButton(
         tooltip: 'Settings',
         icon: const Icon(Icons.settings),
         onPressed: _openSettings,
@@ -1600,8 +1826,13 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final connection = context.watch<ConnectionController>();
-    final titleSummary = buildTitleSummary(connection.lastPrintStatus);
+    final model = context.select<ConnectionController, _StreamPageModel>(
+      (connection) => _StreamPageModel(
+        isStreaming: connection.isStreaming,
+        printStatus: connection.lastPrintStatus,
+      ),
+    );
+    final titleSummary = buildTitleSummary(model.printStatus);
     final compactLandscape = _isMobileLandscape(context);
 
     return FramelessWindowResizeFrame(
@@ -1620,7 +1851,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
                   ),
             actions: _buildHeaderActions(context),
           ),
-          body: connection.isStreaming
+          body: model.isStreaming
               ? _buildStreamingBody(context, compactLayout: compactLandscape)
               : DisconnectedBody(
                   onOpenSettings: _openSettings,
@@ -1630,4 +1861,144 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       ),
     );
   }
+}
+
+class _DemoVideoPreview extends StatelessWidget {
+  const _DemoVideoPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(color: Color(0xFF101214)),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [_DemoVideoScene(), _DemoVideoVignette()],
+      ),
+    );
+  }
+}
+
+class _DemoVideoScene extends StatelessWidget {
+  const _DemoVideoScene();
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(painter: _DemoVideoScenePainter());
+  }
+}
+
+class _DemoVideoVignette extends StatelessWidget {
+  const _DemoVideoVignette();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            colors: [Colors.transparent, Colors.black.withOpacity(0.35)],
+            radius: 1.15,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DemoVideoScenePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bgPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFF15181C), Color(0xFF0B0D10)],
+      ).createShader(Offset.zero & size);
+    canvas.drawRect(Offset.zero & size, bgPaint);
+
+    final center = size.center(Offset.zero);
+
+    final bedRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(center.dx, size.height * 0.70),
+        width: size.width * 0.62,
+        height: size.height * 0.20,
+      ),
+      const Radius.circular(14),
+    );
+    canvas.drawRRect(
+      bedRect,
+      Paint()..color = const Color(0xFF70777F).withOpacity(0.9),
+    );
+
+    canvas.drawRRect(
+      bedRect.deflate(10),
+      Paint()..color = const Color(0xFFB2B7BD).withOpacity(0.38),
+    );
+
+    final framePaint = Paint()
+      ..color = const Color(0xFF0A0B0D)
+      ..strokeWidth = size.width * 0.02
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(
+      Offset(size.width * 0.16, size.height * 0.12),
+      Offset(size.width * 0.16, size.height * 0.82),
+      framePaint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 0.84, size.height * 0.12),
+      Offset(size.width * 0.84, size.height * 0.82),
+      framePaint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 0.16, size.height * 0.12),
+      Offset(size.width * 0.84, size.height * 0.12),
+      framePaint,
+    );
+
+    final carriage = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(size.width * 0.46, size.height * 0.33),
+        width: size.width * 0.18,
+        height: size.height * 0.18,
+      ),
+      const Radius.circular(10),
+    );
+    canvas.drawRRect(
+      carriage,
+      Paint()..color = const Color(0xFFE7E9ED).withOpacity(0.88),
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.46, size.height * 0.33),
+      size.shortestSide * 0.035,
+      Paint()..color = const Color(0xFF090A0C),
+    );
+
+    canvas.drawRect(
+      Rect.fromCenter(
+        center: Offset(size.width * 0.52, size.height * 0.45),
+        width: size.width * 0.40,
+        height: size.height * 0.08,
+      ),
+      Paint()..color = const Color(0xFF2A2D31).withOpacity(0.75),
+    );
+
+    final accentPaint = Paint()
+      ..color = const Color(0xFF9EB4CF).withOpacity(0.35)
+      ..strokeWidth = size.width * 0.01
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(size.width * 0.22, size.height * 0.52),
+      Offset(size.width * 0.78, size.height * 0.52),
+      accentPaint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 0.24, size.height * 0.58),
+      Offset(size.width * 0.76, size.height * 0.58),
+      accentPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _DemoVideoScenePainter oldDelegate) => false;
 }

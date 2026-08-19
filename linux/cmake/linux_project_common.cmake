@@ -1,17 +1,12 @@
-# Project-level configuration.
-cmake_minimum_required(VERSION 3.13)
-project(runner LANGUAGES CXX)
+# Shared project-level build rules for the Linux GTK3/GTK4 templates.
 
-# The name of the executable created for the application. Change this to change
-# the on-disk name of your application.
-set(BINARY_NAME "boomprint")
-# The unique GTK application identifier for this application. See:
-# https://wiki.gnome.org/HowDoI/ChooseApplicationID
-set(APPLICATION_ID "com.rnd.boomprint")
+if(NOT DEFINED LINUX_GTK_PKG)
+  message(FATAL_ERROR "LINUX_GTK_PKG must be set before including linux_project_common.cmake")
+endif()
 
-# Explicitly opt in to modern CMake behaviors to avoid warnings with recent
-# versions of CMake.
-cmake_policy(SET CMP0063 NEW)
+if(NOT DEFINED LINUX_GTK_DEFINE)
+  message(FATAL_ERROR "LINUX_GTK_DEFINE must be set before including linux_project_common.cmake")
+endif()
 
 # Load bundled libraries from the lib/ directory relative to the binary.
 set(CMAKE_INSTALL_RPATH "$ORIGIN/lib")
@@ -50,10 +45,10 @@ endfunction()
 set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
-# System-level dependencies.
+# System-level dependencies shared by the application targets.
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk4)
-add_compile_definitions(FLUTTER_LINUX_GTK4)
+pkg_check_modules(GTK REQUIRED IMPORTED_TARGET ${LINUX_GTK_PKG})
+add_compile_definitions(${LINUX_GTK_DEFINE})
 
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
@@ -70,11 +65,9 @@ set_target_properties(${BINARY_NAME}
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/intermediates_do_not_run"
 )
 
-
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
 include(flutter/generated_plugins.cmake)
-
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build

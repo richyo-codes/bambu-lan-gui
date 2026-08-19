@@ -12,6 +12,20 @@ import 'package:boomprint/printer_firmware.dart';
 // MQTT Client
 // ==========
 
+enum BambuLogLevel { debug, info, warning, error }
+
+class BambuLogEvent {
+  final DateTime timestamp;
+  final BambuLogLevel level;
+  final String message;
+
+  const BambuLogEvent({
+    required this.timestamp,
+    required this.level,
+    required this.message,
+  });
+}
+
 class BambuMqtt {
   final BambuLanConfig config;
   late final MqttServerClient _client =
@@ -23,17 +37,38 @@ class BambuMqtt {
 
   final _reports = StreamController<BambuReportEvent>.broadcast();
   final _commands = StreamController<BambuCommandEvent>.broadcast();
+  final _logs = StreamController<BambuLogEvent>.broadcast();
   int _seq = 1;
   String? _activeSerial;
 
   Stream<BambuReportEvent> get reportStream => _reports.stream;
   Stream<BambuCommandEvent> get commandStream => _commands.stream;
+  Stream<BambuLogEvent> get logStream => _logs.stream;
   bool get isConnected =>
       _client.connectionStatus?.state == MqttConnectionState.connected;
 
   BambuMqtt(this.config);
 
+  void _log(BambuLogLevel level, String message) {
+    final event = BambuLogEvent(
+      timestamp: DateTime.now(),
+      level: level,
+      message: message,
+    );
+    if (!_logs.isClosed) {
+      _logs.add(event);
+    }
+    if (level == BambuLogLevel.error) {
+      stderr.writeln(message);
+    }
+  }
+
   Future<void> connect() async {
+    _log(
+      BambuLogLevel.info,
+      'MQTT connect start host=${config.printerIp} port=${config.mqttPort} '
+      'serial=${config.serial ?? '(unset)'}',
+    );
     // TLS context
     if (config.caCertPem != null && config.caCertPem!.trim().isNotEmpty) {
       const withTrustedRoots = false;
@@ -42,8 +77,9 @@ class BambuMqtt {
       try {
         ctx.setTrustedCertificatesBytes(bytes);
         _client.securityContext = ctx;
+        _log(BambuLogLevel.info, 'MQTT applied custom CA certificate.');
       } catch (e) {
-        stderr.writeln('Failed to apply custom CA cert: $e');
+        _log(BambuLogLevel.warning, 'Failed to apply custom CA cert: $e');
       }
     }
 
@@ -55,6 +91,7 @@ class BambuMqtt {
       _client.onBadCertificate = (Object c) {
         return true; // accept any certificate
       };
+      _log(BambuLogLevel.warning, 'MQTT accepting bad certificates.');
     }
 
     //_client.setProtocolV311();
@@ -68,15 +105,18 @@ class BambuMqtt {
         .withWillQos(MqttQos.atLeastOnce);
 
     _client.onDisconnected = () {
-      stderr.writeln(
+      _log(
+        BambuLogLevel.warning,
         'MQTT disconnected: ${_client.connectionStatus?.disconnectionOrigin}',
       );
     };
 
     try {
       await _client.connect();
+      _log(BambuLogLevel.info, 'MQTT connected.');
     } on Exception {
       _client.disconnect();
+      _log(BambuLogLevel.error, 'MQTT connection failed.');
       rethrow;
     }
 
@@ -86,6 +126,11 @@ class BambuMqtt {
     if (_activeSerial != null) {
       _client.subscribe('device/${_activeSerial!}/report', MqttQos.atMostOnce);
     }
+    _log(
+      BambuLogLevel.info,
+      'MQTT subscribed to device/+/report'
+      '${_activeSerial != null ? ' and device/${_activeSerial!}/report' : ''}.',
+    );
 
     _client.updates?.listen((events) {
       for (final evt in events) {
@@ -96,7 +141,7 @@ class BambuMqtt {
         try {
           final jsonMap = json.decode(msg) as Map<String, dynamic>;
           final type = _detectType(jsonMap);
-          final ps = _extractPrintStatus(jsonMap);
+          final ps = parsePrintStatus(jsonMap);
           final firmwareVersion = extractFirmwareVersion(jsonMap);
           final e = BambuReportEvent(
             topic: evt.topic,
@@ -105,13 +150,19 @@ class BambuMqtt {
             firmwareVersion: firmwareVersion,
             printStatus: ps,
           );
+          _log(
+            BambuLogLevel.debug,
+            'MQTT report ${evt.topic} type=${type ?? '(unknown)'} '
+            'state=${ps?.gcodeState ?? '(n/a)'}',
+          );
           // Try to learn serial from the first report if not set
           _maybeInferSerial(evt.topic, jsonMap);
 
           _reports.add(e);
         } catch (e) {
           final maxLen = msg.length < 200 ? msg.length : 200;
-          stderr.writeln(
+          _log(
+            BambuLogLevel.error,
             'MQTT report parse failed: $e | topic=${evt.topic} | '
             'msg=${msg.substring(0, maxLen)}',
           );
@@ -162,7 +213,11 @@ class BambuMqtt {
     return null;
   }
 
-  BambuPrintStatus? _extractPrintStatus(Map<String, dynamic> j) {
+  /// Parses the printer's `print` report without requiring a live connection.
+  ///
+  /// Public for focused protocol tests; normal callers receive this through
+  /// [reportStream].
+  BambuPrintStatus? parsePrintStatus(Map<String, dynamic> j) {
     final p = j['print'];
     if (p is! Map) return null;
     T? pick<T>(String k) {
@@ -185,7 +240,13 @@ class BambuMqtt {
       return v as T?;
     }
 
-    final gcodeState = pick<String>('gcode_state') ?? 'PRINT';
+    // A command acknowledgement may have a `print` envelope but no state.
+    // Leave it empty so the controller can retain the last observed state.
+    final gcodeState = pick<String>('gcode_state') ?? '';
+    final hmsPresent = p.containsKey('hms');
+    final filamentPresent = p.containsKey('ams') || p.containsKey('vt_tray');
+    final ams = _asStringDynamicMap(p['ams']);
+    final printError = pick<int>('print_error');
     return BambuPrintStatus(
       gcodeState: gcodeState,
       percent: pick<int>('mc_percent'),
@@ -206,7 +267,137 @@ class BambuMqtt {
       taskId: pick<String>('task_id'),
       jobId: pick<String>('job_id'),
       wifiSignal: pick<String>('wifi_signal'),
+      stage: pick<int>('stg_cur') ?? pick<int>('mc_print_stage'),
+      printError: printError,
+      printerMessage: _printerFailureMessage(p, printError),
+      hms: _parseHmsEvents(p['hms']),
+      hasHmsReport: hmsPresent,
+      filamentTrays: _parseFilamentTrays(p),
+      hasFilamentReport: filamentPresent,
+      activeTrayIndex: _asInt(ams?['tray_now'] ?? p['tray_now']),
+      targetTrayIndex: _asInt(ams?['tray_tar'] ?? p['tray_tar']),
     );
+  }
+
+  int? _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  int? _asRemainingPercent(Object? value) {
+    final parsed = switch (value) {
+      num() => value.toDouble(),
+      String() => double.tryParse(value.trim()),
+      _ => null,
+    };
+    // Printers use negative and out-of-range values to mean unavailable.
+    // Do not surface those sentinels as a plausible remaining percentage.
+    if (parsed == null || !parsed.isFinite || parsed < 0 || parsed > 100) {
+      return null;
+    }
+    return parsed.round();
+  }
+
+  String? _firstNonEmptyString(Iterable<Object?> values) {
+    for (final value in values) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty && text != '0') return text;
+    }
+    return null;
+  }
+
+  String? _printerFailureMessage(Map print, int? printError) {
+    final result = print['result']?.toString().trim().toLowerCase() ?? '';
+    final errorCode = _asInt(print['error_code']);
+    final hasFailure =
+        printError != null && printError != 0 ||
+        errorCode != null && errorCode != 0 ||
+        const {
+          'fail',
+          'failed',
+          'error',
+          'reject',
+          'rejected',
+          'failure',
+        }.contains(result);
+    if (!hasFailure) return null;
+    return _firstNonEmptyString([print['reason'], print['message']]);
+  }
+
+  List<BambuHmsEvent> _parseHmsEvents(Object? value) {
+    if (value is! List) return const [];
+    final events = <BambuHmsEvent>[];
+    for (final item in value) {
+      final event = _asStringDynamicMap(item);
+      if (event == null) continue;
+      final code = _asInt(event['code']);
+      final attr = _asInt(event['attr']);
+      if (code == null || attr == null) continue;
+      events.add(BambuHmsEvent(code: code, attr: attr));
+    }
+    return events;
+  }
+
+  List<BambuFilamentTray> _parseFilamentTrays(Map print) {
+    final trays = <BambuFilamentTray>[];
+    final ams = _asStringDynamicMap(print['ams']);
+    final amsUnits = ams?['ams'];
+    if (amsUnits is List) {
+      for (var amsIndex = 0; amsIndex < amsUnits.length; amsIndex++) {
+        final unit = _asStringDynamicMap(amsUnits[amsIndex]);
+        final slots = unit?['tray'];
+        if (slots is! List) continue;
+        for (var position = 0; position < slots.length; position++) {
+          final slot = _asStringDynamicMap(slots[position]);
+          if (slot == null) continue;
+          final slotIndex = _asInt(slot['id']) ?? position;
+          final type = _firstNonEmptyString([slot['tray_type']]);
+          final name = _firstNonEmptyString([slot['tray_id_name']]);
+          final color = _firstNonEmptyString([slot['tray_color']]);
+          final remaining = _asRemainingPercent(slot['remain']);
+          final hasDetails =
+              type != null ||
+              name != null ||
+              color != null ||
+              remaining != null ||
+              slot.length > 1;
+          if (!hasDetails) continue;
+          trays.add(
+            BambuFilamentTray(
+              trayIndex: amsIndex * 4 + slotIndex,
+              amsIndex: amsIndex,
+              slotIndex: slotIndex,
+              type: type,
+              name: name,
+              color: color,
+              remainingPercent: remaining,
+            ),
+          );
+        }
+      }
+    }
+
+    final external = _asStringDynamicMap(print['vt_tray']);
+    if (external != null) {
+      final type = _firstNonEmptyString([external['tray_type']]);
+      final name = _firstNonEmptyString([external['tray_id_name']]);
+      final color = _firstNonEmptyString([external['tray_color']]);
+      final remaining = _asRemainingPercent(external['remain']);
+      if (type != null || name != null || color != null || remaining != null) {
+        trays.add(
+          BambuFilamentTray(
+            trayIndex: 254,
+            isExternal: true,
+            type: type,
+            name: name,
+            color: color,
+            remainingPercent: remaining,
+          ),
+        );
+      }
+    }
+    return trays;
   }
 
   void _maybeInferSerial(String topic, Map<String, dynamic> j) {
@@ -240,7 +431,10 @@ class BambuMqtt {
   }
 
   Future<void> dispose() async {
+    _log(BambuLogLevel.info, 'MQTT dispose requested.');
     await _reports.close();
+    await _commands.close();
+    await _logs.close();
     _client.disconnect();
   }
 
@@ -260,6 +454,7 @@ class BambuMqtt {
     final b = MqttClientPayloadBuilder();
     b.addUTF8String(jsonEncode(payload));
     // Log the outbound command explicitly
+    _log(BambuLogLevel.info, 'MQTT publish $topic ${jsonEncode(payload)}');
     final evt = BambuCommandEvent(
       topic: topic,
       payload: payload,
@@ -318,13 +513,7 @@ class BambuMqtt {
   }
 
   Future<void> cancelPrint() async {
-    final payload = {
-      'print': {
-        'sequence_id': (_seq++).toString(),
-        'command': 'stop', // some firmwares may expect 'cancel'
-      },
-    };
-    await publishRequest(payload);
+    await _sendPrintCommand(command: 'stop', fallbackCommand: 'cancel');
   }
 
   /// Set print speed factor using standard G-code (`M220 S<percent>`).
@@ -352,16 +541,18 @@ class BambuMqtt {
       },
     };
     try {
-      stderr.writeln(
+      _log(
+        BambuLogLevel.info,
         'MQTT speed profile request: profile=${profile.label} '
         'seq=$seq param=${profile.mqttParam}',
       );
       final ackFuture = _waitForAck(sequenceId: seq, command: 'print_speed');
       await publishRequest(payload);
       final ack = await ackFuture;
-      stderr.writeln(
-        'MQTT speed profile ACK: envelope=${ack.envelope} seq=${ack.sequenceId} '
-        'result=${ack.payload['result'] ?? ''} '
+      _log(
+        BambuLogLevel.info,
+        'MQTT speed profile ACK: envelope=${ack.envelope} '
+        'seq=${ack.sequenceId} result=${ack.payload['result'] ?? ''} '
         'reason=${ack.payload['reason'] ?? ''} '
         'error_code=${ack.payload['error_code'] ?? ''}',
       );
@@ -369,7 +560,8 @@ class BambuMqtt {
         throw StateError(_ackFailureMessage(ack.payload));
       }
     } catch (e) {
-      stderr.writeln(
+      _log(
+        BambuLogLevel.warning,
         'MQTT speed profile fallback: profile=${profile.label} '
         'reason=$e fallback_percent=${profile.fallbackPercent}',
       );
@@ -490,8 +682,56 @@ class BambuMqtt {
         'version': 1,
         'push_target': 1,
       },
+      // Required by some firmware revisions before they send lights_report
+      // and other full-status fields.
+      'user_id': '1234567890',
     };
     await publishRequest(payload, qos: MqttQos.atMostOnce);
+  }
+
+  Future<void> _sendPrintCommand({
+    required String command,
+    String? fallbackCommand,
+    Duration timeout = const Duration(seconds: 3),
+  }) async {
+    Future<void> publishAndAwait(String cmd) async {
+      final seq = (_seq++).toString();
+      final payload = {
+        'print': {'sequence_id': seq, 'command': cmd},
+      };
+      _log(BambuLogLevel.info, 'MQTT print command request: $cmd seq=$seq');
+      final ackFuture = _waitForAck(
+        sequenceId: seq,
+        command: cmd,
+        timeout: timeout,
+      );
+      await publishRequest(payload);
+      final ack = await ackFuture;
+      _log(
+        BambuLogLevel.info,
+        'MQTT print command ACK: command=$cmd envelope=${ack.envelope} '
+        'seq=${ack.sequenceId} result=${ack.payload['result'] ?? ''} '
+        'reason=${ack.payload['reason'] ?? ''} '
+        'error_code=${ack.payload['error_code'] ?? ''}',
+      );
+      if (_ackIndicatesFailure(ack.payload)) {
+        throw StateError(_ackFailureMessage(ack.payload));
+      }
+    }
+
+    try {
+      await publishAndAwait(command);
+    } catch (e) {
+      if (fallbackCommand == null || fallbackCommand == command) {
+        rethrow;
+      }
+      _log(
+        BambuLogLevel.warning,
+        'MQTT print command fallback: command=$command reason=$e '
+        'fallback=$fallbackCommand',
+      );
+      await publishAndAwait(fallbackCommand);
+    }
   }
 
   Future<_MqttEnvelopeAck> _waitForAck({

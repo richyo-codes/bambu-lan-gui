@@ -21,6 +21,8 @@ class ConnectionController extends ChangeNotifier {
   bool? chamberLightOn;
   bool mqttConnected = false;
   String lightNode = 'chamber_light';
+  bool printCommandBusy = false;
+  String? printCommandMessage;
 
   BambuMqtt? _mqttClient;
   StreamSubscription<BambuReportEvent>? _mqttReportSub;
@@ -85,6 +87,8 @@ class ConnectionController extends ChangeNotifier {
     firmwareVersion = null;
     firmwareWarning = null;
     chamberLightOn = null;
+    printCommandBusy = false;
+    printCommandMessage = null;
     mqttConnected = false;
     notifyListeners();
   }
@@ -164,6 +168,69 @@ class ConnectionController extends ChangeNotifier {
       return null;
     } catch (e) {
       return 'Speed command failed: $e';
+    }
+  }
+
+  Future<String?> pausePrint() {
+    return _runPrintCommand(
+      action: 'Pause',
+      allowedStates: const {'RUNNING', 'PREPARE'},
+      command: (client) => client.pausePrint(),
+    );
+  }
+
+  Future<String?> resumePrint() {
+    return _runPrintCommand(
+      action: 'Resume',
+      allowedStates: const {'PAUSED', 'PAUSE'},
+      command: (client) => client.resumePrint(),
+    );
+  }
+
+  Future<String?> cancelPrint() {
+    return _runPrintCommand(
+      action: 'Cancel',
+      allowedStates: const {'RUNNING', 'PREPARE', 'PAUSED', 'PAUSE'},
+      command: (client) => client.cancelPrint(),
+    );
+  }
+
+  Future<String?> _runPrintCommand({
+    required String action,
+    required Set<String> allowedStates,
+    required Future<void> Function(BambuMqtt client) command,
+  }) async {
+    final client = _mqttClient;
+    if (client == null || !client.isConnected) {
+      return 'Printer controls are unavailable until MQTT is connected.';
+    }
+    if (printCommandBusy) {
+      return 'Another printer command is already being sent.';
+    }
+    final state = lastPrintStatus?.gcodeState.trim().toUpperCase() ?? '';
+    if (!allowedStates.contains(state)) {
+      return state.isEmpty
+          ? 'Waiting for printer state before sending $action.'
+          : '$action is not available while the printer is $state.';
+    }
+
+    printCommandBusy = true;
+    printCommandMessage = null;
+    notifyListeners();
+    try {
+      await command(client);
+      // MQTT publish acceptance is not the same as printer completion. Keep
+      // the observed report state authoritative and ask for a fresh report.
+      printCommandMessage = '$action request sent. Waiting for printer status.';
+      client.requestPushAll().catchError((_) {});
+      return null;
+    } catch (e) {
+      final message = '$action failed: $e';
+      printCommandMessage = message;
+      return message;
+    } finally {
+      printCommandBusy = false;
+      notifyListeners();
     }
   }
 
@@ -278,6 +345,15 @@ class ConnectionController extends ChangeNotifier {
       printerStatus =
           '${merged.gcodeState}${pct.isNotEmpty ? ' $pct' : ''}$left';
       lastPrintStatus = merged;
+      final state = merged.gcodeState.trim().toUpperCase();
+      if (printCommandMessage != null &&
+          (state == 'RUNNING' ||
+              state == 'PAUSED' ||
+              state == 'PAUSE' ||
+              state == 'IDLE' ||
+              state == 'FINISH')) {
+        printCommandMessage = null;
+      }
     } else if (event.type != null && event.type != 'SYSTEM') {
       printerStatus = event.type!;
     }
@@ -312,19 +388,21 @@ class ConnectionController extends ChangeNotifier {
 }
 
 String? _detectLightNode(Map<String, dynamic> json) {
-  final print = json['print'];
-  if (print is Map) {
+  for (final envelope in [json['print'], json['system'], json]) {
+    if (envelope is! Map) continue;
     for (final key in ['work_light', 'worklight', 'chamber_light']) {
-      if (print.containsKey(key)) {
+      if (envelope.containsKey(key)) {
         return key == 'worklight' ? 'work_light' : key;
       }
     }
-  }
-  final system = json['system'];
-  if (system is Map) {
-    for (final key in ['work_light', 'worklight', 'chamber_light']) {
-      if (system.containsKey(key)) {
-        return key == 'worklight' ? 'work_light' : key;
+    final lightReports = envelope['lights_report'];
+    if (lightReports is List) {
+      for (final report in lightReports) {
+        if (report is! Map) continue;
+        final node = report['node']?.toString().trim();
+        if (node == 'work_light' || node == 'chamber_light') {
+          return node;
+        }
       }
     }
   }
@@ -333,13 +411,25 @@ String? _detectLightNode(Map<String, dynamic> json) {
 
 bool? _extractLightStateForNode(Map<String, dynamic> json, String node) {
   dynamic v;
-  final print = json['print'];
-  if (print is Map) {
-    v = print[node];
-    if (v == null && node == 'work_light') v = print['worklight'];
+  for (final envelope in [json['print'], json['system'], json]) {
+    if (envelope is! Map) continue;
+    v ??= envelope[node];
+    if (v == null && node == 'work_light') v = envelope['worklight'];
+    if (v != null) break;
+    final lightReports = envelope['lights_report'];
+    if (lightReports is List) {
+      for (final report in lightReports) {
+        if (report is! Map) continue;
+        final reportNode = report['node']?.toString().trim();
+        if (reportNode == node ||
+            (node == 'work_light' && reportNode == 'worklight')) {
+          v = report['mode'] ?? report['state'];
+          break;
+        }
+      }
+    }
+    if (v != null) break;
   }
-  v ??= json[node];
-  if (v == null && node == 'work_light') v = json['worklight'];
   if (v == null) return null;
   if (v is bool) return v;
   if (v is num) return v != 0;
@@ -380,5 +470,18 @@ BambuPrintStatus _mergePrintStatus(
     taskId: keep(next.taskId, prev.taskId),
     jobId: keep(next.jobId, prev.jobId),
     wifiSignal: keep(next.wifiSignal, prev.wifiSignal),
+    stage: keep(next.stage, prev.stage),
+    printError: keep(next.printError, prev.printError),
+    printerMessage: next.printError != null
+        ? next.printerMessage
+        : keep(next.printerMessage, prev.printerMessage),
+    hms: next.hasHmsReport ? next.hms : prev.hms,
+    hasHmsReport: next.hasHmsReport || prev.hasHmsReport,
+    filamentTrays: next.hasFilamentReport
+        ? next.filamentTrays
+        : prev.filamentTrays,
+    hasFilamentReport: next.hasFilamentReport || prev.hasFilamentReport,
+    activeTrayIndex: keep(next.activeTrayIndex, prev.activeTrayIndex),
+    targetTrayIndex: keep(next.targetTrayIndex, prev.targetTrayIndex),
   );
 }

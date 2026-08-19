@@ -58,5 +58,7 @@ generated_plugin_registrant.h
 generated_plugin_registrant.cc
 generated_plugins.cmake
 GeneratedPluginRegistrant.swift
+linux/.gtk_variant.cmake
 windows/flutter/generated_plugin_registrant.cc
 windows/flutter/generated_plugins.cmake
+android/.kotlin/sessions/

@@ -72,15 +72,33 @@ class WindowDragController {
     }
   }
 
+  /// Minimize the window.
+  ///
+  /// Uses the native Linux/Windows window control channel so the titlebar
+  /// button always performs a real minimize operation.
   static Future<void> minimize() async {
-    if (!supportsWindowControls) {
-      return;
+    if (supportsWindowControls) {
+      try {
+        await _channel.invokeMethod('minimize');
+        return;
+      } catch (_) {
+        // The native runner is the sole window-control implementation.
+      }
     }
-    try {
-      await _channel.invokeMethod('minimize');
-    } catch (_) {
-      // Ignore failures; window controls are best-effort.
+  }
+
+  /// Close the window using the native runner channel.
+  ///
+  static Future<void> close() async {
+    if (supportsWindowControls) {
+      try {
+        await _channel.invokeMethod('close');
+        return;
+      } catch (_) {
+        // Fall through to the same best-effort path used by minimize().
+      }
     }
+    await minimize();
   }
 
   static Future<void> toggleMaximize() async {
@@ -115,17 +133,6 @@ class WindowDragController {
     }
     _initialWindowStateRequested = true;
     unawaited(refreshMaximizedState());
-  }
-
-  static Future<void> close() async {
-    if (!supportsWindowControls) {
-      return;
-    }
-    try {
-      await _channel.invokeMethod('close');
-    } catch (_) {
-      // Ignore failures; window controls are best-effort.
-    }
   }
 }
 
@@ -297,6 +304,7 @@ class WindowChromeHeader extends StatelessWidget
     this.actions = const [],
     this.actionPadding = const EdgeInsets.symmetric(horizontal: 12),
     this.actionHeight = 52,
+    this.showAppIcon = true,
   });
 
   final Widget title;
@@ -305,6 +313,7 @@ class WindowChromeHeader extends StatelessWidget
   final List<Widget> actions;
   final EdgeInsetsGeometry actionPadding;
   final double actionHeight;
+  final bool showAppIcon;
 
   @override
   Size get preferredSize {
@@ -319,71 +328,108 @@ class WindowChromeHeader extends StatelessWidget
     final onSurface =
         theme.appBarTheme.foregroundColor ?? theme.colorScheme.onSurface;
 
-    return Material(
-      color: surfaceColor,
-      elevation: theme.appBarTheme.elevation ?? 0,
-      child: SafeArea(
-        bottom: false,
-        child: SizedBox(
-          height: kToolbarHeight,
-          child: Row(
-            children: [
-              if (leading != null) ...[
-                Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: leading!,
-                ),
-              ],
-              Expanded(
-                child: WindowDragArea(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          DefaultTextStyle(
-                            style:
-                                theme.appBarTheme.titleTextStyle ??
-                                theme.textTheme.titleLarge!.copyWith(
-                                  color: onSurface,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final showLeading = leading != null && width >= 260;
+        final showAppIcon = this.showAppIcon && width >= 320;
+        final showSubtitle = subtitle != null && width >= 420;
+        // Always show actions when present. On narrow layouts the caller can
+        // already collapse them to a single overflow menu button.
+        final showActions = actions.isNotEmpty;
+        final showWindowControls = width >= 240;
+
+        return Material(
+          color: surfaceColor,
+          elevation: theme.appBarTheme.elevation ?? 0,
+          child: SafeArea(
+            bottom: false,
+            child: SizedBox(
+              height: kToolbarHeight,
+              child: Row(
+                children: [
+                  if (showLeading) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: leading!,
+                    ),
+                  ],
+                  Expanded(
+                    child: WindowDragArea(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.max,
+                            children: [
+                              if (showAppIcon) ...[
+                                Image.asset(
+                                  'assets/icons/renders/printer_home_shield.png',
+                                  width: 22,
+                                  height: 22,
+                                  filterQuality: FilterQuality.high,
                                 ),
-                            child: title,
+                                const SizedBox(width: 10),
+                              ],
+                              Flexible(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    DefaultTextStyle.merge(
+                                      style:
+                                          theme.appBarTheme.titleTextStyle ??
+                                          theme.textTheme.titleLarge!.copyWith(
+                                            color: onSurface,
+                                          ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      softWrap: false,
+                                      child: title,
+                                    ),
+                                    if (showSubtitle)
+                                      DefaultTextStyle.merge(
+                                        style:
+                                            theme
+                                                .appBarTheme
+                                                .toolbarTextStyle ??
+                                            theme.textTheme.bodySmall!.copyWith(
+                                              color: onSurface,
+                                            ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        softWrap: false,
+                                        child: subtitle!,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                          if (subtitle != null)
-                            DefaultTextStyle(
-                              style:
-                                  theme.appBarTheme.toolbarTextStyle ??
-                                  theme.textTheme.bodySmall!.copyWith(
-                                    color: onSurface,
-                                  ),
-                              child: subtitle!,
-                            ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  if (showActions)
+                    Padding(
+                      padding: actionPadding,
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: actions,
+                      ),
+                    ),
+                  if (showActions) const SizedBox(width: 8),
+                  if (showWindowControls) const WindowControlButtons(),
+                  if (showWindowControls) const SizedBox(width: 8),
+                ],
               ),
-              if (actions.isNotEmpty)
-                Padding(
-                  padding: actionPadding,
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: actions,
-                  ),
-                ),
-              const SizedBox(width: 8),
-              const WindowControlButtons(),
-              const SizedBox(width: 8),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

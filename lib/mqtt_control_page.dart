@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:boomprint/app_strings.dart';
 import 'package:boomprint/bambu_lan.dart';
 import 'package:boomprint/bambu_mqtt.dart';
@@ -22,9 +25,12 @@ class _MqttControlPageState extends State<MqttControlPage> {
   int _speedPct = 100;
   BambuSpeedProfile _profile = BambuSpeedProfile.standard;
   bool _controlsArmed = false; // require explicit enable before sending
-  bool _allowDuringPrint = false; // require extra opt-in while printing
   String? _gcodeState; // RUNNING / IDLE / etc
-  final List<String> _cmdLog = <String>[];
+  final List<BambuLogEvent> _logEntries = <BambuLogEvent>[];
+  static const int _maxLogEntries = 300;
+  StreamSubscription<BambuReportEvent>? _reportSub;
+  StreamSubscription<BambuLogEvent>? _logSub;
+  bool _showDebugLog = true;
 
   Future<void> _ensureConnected() async {
     if (_mqtt?.isConnected == true) return;
@@ -44,20 +50,23 @@ class _MqttControlPageState extends State<MqttControlPage> {
         _mqtt = mqtt;
         _status = 'Connected';
       });
+      _logSub?.cancel();
+      _logSub = mqtt.logStream.listen((event) {
+        if (!mounted) return;
+        setState(() {
+          _logEntries.add(event);
+          if (_logEntries.length > _maxLogEntries) {
+            _logEntries.removeAt(0);
+          }
+        });
+      });
       // Observe printer state, but do not send any commands implicitly.
-      mqtt.reportStream.listen((e) {
+      _reportSub?.cancel();
+      _reportSub = mqtt.reportStream.listen((e) {
         if (!mounted) return;
         if (e.printStatus != null) {
           setState(() => _gcodeState = e.printStatus!.gcodeState);
         }
-      });
-      mqtt.commandStream.listen((c) {
-        final line = '${c.timestamp.toIso8601String()} ${c.topic} ${c.payload}';
-        if (!mounted) return;
-        setState(() {
-          _cmdLog.add(line);
-          if (_cmdLog.length > 200) _cmdLog.removeAt(0);
-        });
       });
     } catch (e) {
       setState(() => _status = 'Connect failed: $e');
@@ -86,11 +95,6 @@ class _MqttControlPageState extends State<MqttControlPage> {
       setState(() => _status = 'Controls are locked. Enable to send.');
       return;
     }
-    final printing = (_gcodeState == 'RUNNING' || _gcodeState == 'PREPARE');
-    if (printing && !_allowDuringPrint) {
-      setState(() => _status = 'Blocked during print (toggle to allow).');
-      return;
-    }
     if (!_homed && (x != null || y != null)) {
       setState(() => _status = 'Home first (XY)');
       return;
@@ -115,10 +119,6 @@ class _MqttControlPageState extends State<MqttControlPage> {
       setState(() => _status = 'No active print to pause.');
       return;
     }
-    if (!_allowDuringPrint) {
-      setState(() => _status = 'Blocked during print.');
-      return;
-    }
     final ok = await _confirm(context, 'Pause current print?');
     if (!ok) return;
     await _ensureConnected();
@@ -138,10 +138,6 @@ class _MqttControlPageState extends State<MqttControlPage> {
     final paused = (_gcodeState == 'PAUSED');
     if (!paused) {
       setState(() => _status = 'Not paused.');
-      return;
-    }
-    if (!_allowDuringPrint) {
-      setState(() => _status = 'Blocked during print.');
       return;
     }
     final ok = await _confirm(context, 'Resume current print?');
@@ -168,10 +164,6 @@ class _MqttControlPageState extends State<MqttControlPage> {
       setState(() => _status = 'No active print to cancel.');
       return;
     }
-    if (!_allowDuringPrint) {
-      setState(() => _status = 'Blocked during print.');
-      return;
-    }
     final ok = await _confirm(
       context,
       'Cancel current print? This stops the job.',
@@ -188,8 +180,28 @@ class _MqttControlPageState extends State<MqttControlPage> {
 
   @override
   void dispose() {
+    _reportSub?.cancel();
+    _logSub?.cancel();
     _mqtt?.dispose();
     super.dispose();
+  }
+
+  Future<void> _copyLogs() async {
+    final text = _logEntries.map(_formatLogEntry).join('\n');
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      setState(() => _status = 'Logs copied to clipboard');
+    }
+  }
+
+  void _clearLogs() {
+    setState(() => _logEntries.clear());
+  }
+
+  String _formatLogEntry(BambuLogEvent event) {
+    final time = event.timestamp.toIso8601String();
+    final level = event.level.name.toUpperCase();
+    return '[$time] $level ${event.message}';
   }
 
   Future<bool> _confirm(BuildContext context, String message) async {
@@ -250,17 +262,7 @@ class _MqttControlPageState extends State<MqttControlPage> {
               if (_gcodeState != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 4.0),
-                  child: Row(
-                    children: [
-                      Text('State: ${_gcodeState!}'),
-                      const SizedBox(width: 16),
-                      const Text('Allow during print'),
-                      Switch(
-                        value: _allowDuringPrint,
-                        onChanged: (v) => setState(() => _allowDuringPrint = v),
-                      ),
-                    ],
-                  ),
+                  child: Text('State: ${_gcodeState!}'),
                 ),
               const SizedBox(height: 16),
               Card(
@@ -490,35 +492,73 @@ class _MqttControlPageState extends State<MqttControlPage> {
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Safe mode: No commands are sent unless Armed. Opening this screen does not send any commands.',
-                style: TextStyle(color: Colors.grey),
+              Text(
+                'Safe mode: No commands are sent unless Armed. '
+                'Opening this screen does not send any commands.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.grey),
               ),
               const SizedBox(height: 8),
-              Expanded(
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Command Log'),
-                        const Divider(height: 8),
-                        Expanded(
-                          child: ListView.builder(
-                            itemCount: _cmdLog.length,
-                            itemBuilder: (context, i) => Text(
-                              _cmdLog[i],
-                              style: const TextStyle(
+              Card(
+                child: ExpansionTile(
+                  initiallyExpanded: _showDebugLog,
+                  onExpansionChanged: (v) => setState(() => _showDebugLog = v),
+                  title: Text('MQTT Logs (${_logEntries.length})'),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      child: Row(
+                        children: [
+                          TextButton.icon(
+                            onPressed: _logEntries.isEmpty ? null : _copyLogs,
+                            icon: const Icon(Icons.copy, size: 18),
+                            label: const Text('Copy'),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton.icon(
+                            onPressed: _logEntries.isEmpty ? null : _clearLogs,
+                            icon: const Icon(Icons.clear_all, size: 18),
+                            label: const Text('Clear'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      height: 220,
+                      child: ListView.builder(
+                        itemCount: _logEntries.length,
+                        itemBuilder: (context, i) {
+                          final event = _logEntries[i];
+                          final level = event.level.name.toUpperCase();
+                          final color = switch (event.level) {
+                            BambuLogLevel.debug => Colors.grey,
+                            BambuLogLevel.info => Colors.white,
+                            BambuLogLevel.warning => Colors.orangeAccent,
+                            BambuLogLevel.error => Colors.redAccent,
+                          };
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 4,
+                            ),
+                            child: SelectableText(
+                              '[${event.timestamp.toIso8601String()}] '
+                              '$level ${event.message}',
+                              style: TextStyle(
                                 fontFamily: 'monospace',
                                 fontSize: 12,
+                                color: color,
                               ),
                             ),
-                          ),
-                        ),
-                      ],
+                          );
+                        },
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ],

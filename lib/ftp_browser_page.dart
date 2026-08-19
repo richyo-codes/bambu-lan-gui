@@ -1093,6 +1093,14 @@ class FilamentOption {
     this.color,
     this.trayIndex,
   });
+
+  @override
+  bool operator ==(Object other) {
+    return other is FilamentOption && other.id == id;
+  }
+
+  @override
+  int get hashCode => id.hashCode;
 }
 
 class _MqttEnvelopeAck {

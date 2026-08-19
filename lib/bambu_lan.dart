@@ -99,6 +99,57 @@ class BambuReportEvent {
   });
 }
 
+/// A hardware-management fault reported by the printer.
+///
+/// Bambu's report protocol carries HMS codes as two 32-bit values. The
+/// official troubleshooting wiki uses the same values in its URL, so retain
+/// them even when a firmware version does not include a human-readable text.
+class BambuHmsEvent {
+  final int code;
+  final int attr;
+
+  const BambuHmsEvent({required this.code, required this.attr});
+
+  String get displayCode =>
+      '${(code >> 16).toRadixString(16).padLeft(4, '0').toUpperCase()}-'
+      '${(code & 0xffff).toRadixString(16).padLeft(4, '0').toUpperCase()}-'
+      '${(attr >> 16).toRadixString(16).padLeft(4, '0').toUpperCase()}-'
+      '${(attr & 0xffff).toRadixString(16).padLeft(4, '0').toUpperCase()}';
+
+  String get wikiUrl =>
+      'https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/'
+      '${displayCode.replaceAll('-', '_')}';
+}
+
+/// A physical AMS tray or external spool reported by the printer.
+class BambuFilamentTray {
+  final int trayIndex;
+  final int? amsIndex;
+  final int? slotIndex;
+  final bool isExternal;
+  final String? name;
+  final String? type;
+  final String? color;
+  final int? remainingPercent;
+
+  const BambuFilamentTray({
+    required this.trayIndex,
+    this.amsIndex,
+    this.slotIndex,
+    this.isExternal = false,
+    this.name,
+    this.type,
+    this.color,
+    this.remainingPercent,
+  });
+
+  String get label {
+    if (isExternal) return 'External spool';
+    if (amsIndex == null || slotIndex == null) return 'AMS tray $trayIndex';
+    return 'AMS ${amsIndex! + 1} / Slot ${slotIndex! + 1}';
+  }
+}
+
 class BambuPrintStatus {
   final String gcodeState; // e.g. RUNNING, IDLE, FINISH
   final int? percent; // mc_percent 0..100
@@ -119,6 +170,15 @@ class BambuPrintStatus {
   final String? taskId; // task_id
   final String? jobId; // job_id
   final String? wifiSignal; // wifi_signal, e.g. -48dBm
+  final int? stage; // stg_cur / mc_print_stage
+  final int? printError; // print_error, 0 means no printer error
+  final String? printerMessage; // printer-supplied rejection/failure reason
+  final List<BambuHmsEvent> hms;
+  final bool hasHmsReport;
+  final List<BambuFilamentTray> filamentTrays;
+  final bool hasFilamentReport;
+  final int? activeTrayIndex; // ams.tray_now; 254 is external spool
+  final int? targetTrayIndex; // ams.tray_tar
 
   const BambuPrintStatus({
     required this.gcodeState,
@@ -140,7 +200,30 @@ class BambuPrintStatus {
     this.taskId,
     this.jobId,
     this.wifiSignal,
+    this.stage,
+    this.printError,
+    this.printerMessage,
+    this.hms = const [],
+    this.hasHmsReport = false,
+    this.filamentTrays = const [],
+    this.hasFilamentReport = false,
+    this.activeTrayIndex,
+    this.targetTrayIndex,
   });
+
+  bool get hasPrinterFault =>
+      hms.isNotEmpty || (printError != null && printError != 0);
+
+  BambuFilamentTray? get activeFilament {
+    final target = activeTrayIndex;
+    if (target == null) return null;
+    for (final tray in filamentTrays) {
+      if (tray.trayIndex == target || (target == 254 && tray.isExternal)) {
+        return tray;
+      }
+    }
+    return null;
+  }
 }
 
 // =============================
