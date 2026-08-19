@@ -19,8 +19,24 @@ concurrency:
   cancel-in-progress: true
   group: ${{ github.workflow }}-${{ github.ref }}
 
-
 jobs:
+  release_tag:
+    name: Validate release tag
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    outputs:
+      is_semver: ${{ steps.validate.outputs.is_semver }}
+    steps:
+      - id: validate
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "is_semver=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_semver=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping release: $GITHUB_REF_NAME is not a valid v-prefixed SemVer tag."
+          fi
+
   android:
     name: Android APK
     runs-on: [ubuntu-latest]
@@ -121,6 +137,14 @@ jobs:
           mkdir -p artifacts/android
           cp build/app/outputs/flutter-apk/app-release.apk "artifacts/android/app-release-$SEMVER.apk"
           cp LICENSE artifacts/android/
+
+      - name: Stage Android release asset
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: artifacts/android/app-release-${{ env.SEMVER }}.apk
+          if-no-files-found: error
 
       - name: Upload Android artifact bundle
         uses: richnetdesign/git-artifact-upload@v2
@@ -223,6 +247,22 @@ jobs:
 
       - name: Include LICENSE in bundle
         run: cp LICENSE build/linux/x64/release/bundle/
+
+      - name: Stage Linux release asset
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          mkdir -p artifacts/release
+          tar -C build/linux/x64/release \
+            -czf "artifacts/release/boomprint-linux-x64-$SEMVER.tar.gz" bundle
+
+      - name: Upload Linux release asset
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: artifacts/release/boomprint-linux-x64-${{ env.SEMVER }}.tar.gz
+          if-no-files-found: error
 
       - name: Upload Linux build artifact
         uses: richnetdesign/git-artifact-upload@v2
@@ -452,6 +492,22 @@ jobs:
       - name: Build Flatpak bundle
         run: bash ./tool/build_flatpak_container.sh --out-dir "$RUNNER_TEMP/boomprint-flatpak"
 
+      - name: Stage Flatpak release asset
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          mkdir -p artifacts/release
+          cp "$RUNNER_TEMP/boomprint-flatpak/com.rnd.boomprint.flatpak" \
+            "artifacts/release/boomprint-linux-x64-$SEMVER.flatpak"
+
+      - name: Upload Flatpak release asset
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-flatpak
+          path: artifacts/release/boomprint-linux-x64-${{ env.SEMVER }}.flatpak
+          if-no-files-found: error
+
       - name: Upload Flatpak artifact
         uses: richnetdesign/git-artifact-upload@v2
         with:
@@ -547,6 +603,14 @@ jobs:
 
       - name: Build Debian package
         run: bash ./tool/build_deb.sh --version "$SEMVER"
+
+      - name: Upload Debian release asset
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-deb
+          path: build/packages/deb/*.deb
+          if-no-files-found: error
 
       - name: Upload Debian artifact
         uses: richnetdesign/git-artifact-upload@v2
@@ -644,6 +708,14 @@ jobs:
       - name: Build RPM package
         run: bash ./tool/build_rpm.sh --version "$SEMVER"
 
+      - name: Upload RPM release asset
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-rpm
+          path: build/packages/rpm/**/*.rpm
+          if-no-files-found: error
+
       - name: Upload RPM artifact
         uses: richnetdesign/git-artifact-upload@v2
         with:
@@ -724,6 +796,14 @@ jobs:
         shell: pwsh
         run: Copy-Item -Path LICENSE -Destination build\windows\x64\runner\Release\LICENSE
 
+      - name: Stage Windows release bundle
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts\release | Out-Null
+          Compress-Archive -Path build\windows\x64\runner\Release\* `
+            -DestinationPath "artifacts\release\boomprint-windows-x64-$env:SEMVER.zip"
+
       - name: Upload Windows release bundle artifact
         uses: richnetdesign/git-artifact-upload@v2
         with:
@@ -770,6 +850,21 @@ jobs:
             Rename-Item -Path $_.FullName -NewName "$base-$env:SEMVER.msix"
           }
 
+      - name: Stage Windows release assets
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts\release | Out-Null
+          Get-ChildItem -Recurse -Filter *.msix | Copy-Item -Destination artifacts\release
+
+      - name: Upload Windows release assets
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: artifacts/release/*
+          if-no-files-found: error
+
       - name: Upload Windows MSIX artifact
         uses: richnetdesign/git-artifact-upload@v2
         with:
@@ -778,6 +873,44 @@ jobs:
           filename: boomprint-windows-msix
           path: '**/*.msix'
           retention-days: 7
+
+  release:
+    name: Publish GitHub release
+    needs: [release_tag, android, linux, linux_flatpak, linux_deb, linux_rpm, windows]
+    if: github.event_name == 'push' && needs.release_tag.outputs.is_semver == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create or update GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' assets < <(find release-assets -type f -print0)
+          if [[ ${#assets[@]} -eq 0 ]]; then
+            echo "No release assets were downloaded." >&2
+            exit 1
+          fi
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --clobber "${assets[@]}"
+          else
+            prerelease_args=()
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+              prerelease_args=(--prerelease)
+            fi
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --verify-tag --generate-notes "${prerelease_args[@]}"
+          fi
 
   # ios:
   #   name: iOS (no codesign)
