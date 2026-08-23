@@ -366,6 +366,7 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   Timer? _autoplayKickTimer;
   Timer? _videoToastTimer;
   Timer? _resumeProbeTimer;
+  DateTime? _backgroundedAt;
   int _streamViewGeneration = 0;
   ConnectionController? _listeningController;
   BambuPrintStatus? _lastObservedPrintStatus;
@@ -678,6 +679,12 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     _durationSub?.cancel();
     _errorSub?.cancel();
     _playingSub?.cancel();
+    _autoplayKickTimer?.cancel();
+    _autoplayKickTimer = null;
+    _resumeProbeTimer?.cancel();
+    _resumeProbeTimer = null;
+    _stallTimer?.cancel();
+    _stallTimer = null;
 
     try {
       await oldPlayer.stop();
@@ -849,17 +856,44 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
     _resumeProbeTimer?.cancel();
     _autoplayKickTimer?.cancel();
     _stallTimer?.cancel();
-    _lastPosition = player.state.position;
+    _backgroundedAt ??= DateTime.now();
+    // Do not query the native player while Android is transitioning it to the
+    // background; MPV may already be shutting down its decoder.
+    _lastPosition = Duration.zero;
     _lastProgressAt = DateTime.now();
   }
 
   Future<void> _handleAppResumed() async {
     final connection = _connection;
+    final backgroundedAt = _backgroundedAt;
+    _backgroundedAt = null;
     if (!connection.isStreaming || connection.currentStreamUrl == null) {
       return;
     }
 
     final url = connection.currentStreamUrl!;
+
+    // Android may keep the Dart isolate alive while reclaiming the native
+    // decoder/player during a long background suspension. Reusing that player
+    // can crash in native code, so replace it before reopening the stream.
+    final longSuspension =
+        backgroundedAt != null &&
+        DateTime.now().difference(backgroundedAt) >=
+            const Duration(seconds: 15);
+    if (Platform.isAndroid && longSuspension) {
+      try {
+        await _recreatePlayerAndController(
+          hardwareAccelerationEnabled: _hardwareAccelerationEnabled,
+          hardwareAccelerationCopyEnabled: _hardwareAccelerationCopyEnabled,
+          reopenUrl: url,
+        );
+      } catch (error) {
+        debugPrint('[Video] long-resume player recovery failed: $error');
+      }
+      unawaited(connection.reconnectMqttIfNeeded());
+      return;
+    }
+
     _lastPosition = player.state.position;
     _lastProgressAt = DateTime.now();
 
@@ -1151,26 +1185,36 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
   void _startStallMonitor() {
     _stallTimer?.cancel();
     _stallTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       final connection = _connection;
       if (!connection.isStreaming || connection.currentStreamUrl == null) {
         return;
       }
-      final state = player.state;
-      // Only consider stalls while playing & not buffering.
-      if (!state.playing || state.buffering) return;
+      try {
+        final state = player.state;
+        // Only consider stalls while playing & not buffering.
+        if (!state.playing || state.buffering) return;
 
-      final position = state.position;
-      // Detect forward progress.
-      if (position > _lastPosition) {
-        _lastPosition = position;
-        _lastProgressAt = DateTime.now();
-        return;
-      }
+        final position = state.position;
+        // Detect forward progress.
+        if (position > _lastPosition) {
+          _lastPosition = position;
+          _lastProgressAt = DateTime.now();
+          return;
+        }
 
-      // No progress for too long -> reconnect
-      final stalledFor = DateTime.now().difference(_lastProgressAt);
-      if (stalledFor >= _stallTimeout) {
-        _attemptReconnect(reason: 'stalled ${stalledFor.inSeconds}s');
+        // No progress for too long -> reconnect
+        final stalledFor = DateTime.now().difference(_lastProgressAt);
+        if (stalledFor >= _stallTimeout) {
+          _attemptReconnect(reason: 'stalled ${stalledFor.inSeconds}s');
+        }
+      } catch (error) {
+        debugPrint('[Video] stall monitor lost native player: $error');
+        timer.cancel();
+        _attemptReconnect(reason: 'native player unavailable', immediate: true);
       }
     });
 
@@ -1293,7 +1337,12 @@ class _StreamPageState extends State<StreamPage> with WidgetsBindingObserver {
       }
 
       if (!state.playing || state.position == Duration.zero) {
-        await player.play();
+        try {
+          await player.play();
+        } catch (error) {
+          debugPrint('[Video] autoplay recovery failed: $error');
+          timer.cancel();
+        }
       }
     });
   }
