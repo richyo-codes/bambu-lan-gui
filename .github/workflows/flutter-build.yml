@@ -115,26 +115,9 @@ jobs:
             "platforms;android-34" \
             "platforms;android-36" \
             "platforms;android-37.0" \
-            "build-tools;34.0.0"
+            "build-tools;36.0.0"
 
-          # API 37 is currently published as android-37.0, while Gradle and
-          # plugins refer to the logical API level as android-37. A symlink is
-          # not sufficient: sdkmanager and Gradle inspect the package path.
-          if [ -d "$ANDROID_SDK_ROOT/platforms/android-37.0" ] && \
-             [ ! -e "$ANDROID_SDK_ROOT/platforms/android-37" ]; then
-            mv "$ANDROID_SDK_ROOT/platforms/android-37.0" \
-              "$ANDROID_SDK_ROOT/platforms/android-37"
-            sed -i \
-              -e 's/platforms;android-37\.0/platforms;android-37/g' \
-              -e 's/<api-level>37\.0<\/api-level>/<api-level>37<\/api-level>/g' \
-              -e 's/Android SDK Platform 37\.0/Android SDK Platform 37/g' \
-              "$ANDROID_SDK_ROOT/platforms/android-37/package.xml"
-            sed -i \
-              -e 's/AndroidVersion.ApiLevel=37\.0/AndroidVersion.ApiLevel=37/g' \
-              -e 's/Android SDK Platform 37\.0/Android SDK Platform 37/g' \
-              "$ANDROID_SDK_ROOT/platforms/android-37/source.properties"
-          fi
-          test -f "$ANDROID_SDK_ROOT/platforms/android-37/android.jar"
+          test -f "$ANDROID_SDK_ROOT/platforms/android-37.0/android.jar"
 
           echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
